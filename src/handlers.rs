@@ -2323,6 +2323,13 @@ pub async fn get_events(
             bind_idx += 3;
         }
         maybe_add_tenant_condition(&mut conditions, &mut bind_idx, tenant_id);
+        // Issue #1063: filter to one network when indexing multiple
+        // networks concurrently from this deployment. Omitted returns
+        // events from every configured network.
+        if params.network.is_some() {
+            conditions.push(format!("chain_id = ${bind_idx}"));
+            bind_idx += 1;
+        }
 
         let where_clause = format!("WHERE {}", conditions.join(" AND "));
 
@@ -2370,6 +2377,13 @@ pub async fn get_events(
 
         let order_clause = if params.rank_by_relevance.unwrap_or(false) {
             "relevance_score DESC, id DESC".to_string()
+        } else if sort_col == "ledger" {
+            // Issue #1065: within a ledger, order deterministically by the
+            // decoded TOID fields before falling back to insertion id.
+            format!(
+                "ledger {dir}, tx_index {dir} NULLS LAST, op_index {dir} NULLS LAST, event_index {dir} NULLS LAST, id {dir}",
+                dir = dir
+            )
         } else {
             format!("{col} {dir}, id {dir}", col = sort_col, dir = dir)
         };
@@ -2473,6 +2487,9 @@ pub async fn get_events(
         }
         if let Some(tid) = tenant_id {
             q = q.bind(tid);
+        }
+        if let Some(ref network) = params.network {
+            q = q.bind(network);
         }
         q = q.bind(limit);
 
