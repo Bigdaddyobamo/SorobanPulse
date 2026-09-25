@@ -1,3 +1,4 @@
+pub mod token_events;
 pub mod abi;
 pub mod advisory_lock;
 pub mod aggregation;
