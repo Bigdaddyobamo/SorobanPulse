@@ -5,136 +5,18 @@
     clippy::missing_panics_doc,      // panics only on misconfiguration at startup
     clippy::wildcard_imports,        // used sparingly in test modules only
 )]
-mod audit_logging;
-mod bloom_filter;
-mod compliance_report;
-mod compression_config;
-mod config;
-mod config_validation;
-mod content_filter;
-mod cross_chain_correlation;
-mod cursor_expiry_handler;
-mod db;
-mod advisory_lock;
-mod query_streaming;
-mod serialization_cache;
-mod streaming_response;
-mod dedup;
-mod distributed_tracing;
-mod email;
-mod encryption;
-mod error;
-mod event_hubs;
-mod graceful_shutdown;
-mod handlers;
-mod idempotency;
-mod log_analysis_tool;
-mod index_monitor;
-mod indexer;
-mod kafka;
-mod kinesis;
+
+use soroban_pulse::{audit_logging, bloom_filter, compliance_report, compression_config, config, config_validation, content_filter, cross_chain_correlation, cursor_expiry_handler, db, advisory_lock, query_streaming, serialization_cache, streaming_response, dedup, distributed_tracing, email, encryption, error, event_hubs, graceful_shutdown, handlers, idempotency, log_analysis_tool, index_monitor, indexer, kafka, kinesis, metrics, prometheus_remote_write, eventbridge, middleware, models, normalizer, notification_dedup, warehouse, pruner, pubsub, queue_publisher, rate_limiter, reencrypt, resource_metrics, routes, rpc_client, schema_validator, sqs, stats_refresh, subscriptions, webhook, webhook_verification, notification_rate_limit, notification_formatter, pagerduty, github, discord, slack, teams, telegram, notification_channel, notification_delivery, integration_handlers, retry_policy, sms, aggregation, saved_queries, abi, oncall, xdr_validation, replica_monitor, feature_flags, event_dedup_replicas, bulk_export, sse_ring_buffer, query_cache, query_plan_cache, query_optimizer, partition_manager, query_builder, adaptive_pool, notification_admin, financial_accuracy, webhook_template, event_aggregation, anomaly_detection, push_notification, connection_pool, slo_tracker, anonymization, event_compression, health_check, ledger_hashes, networks, zero_trust, pool_management, push_preload, statistics_management, cloud_provider, cloud_replication, deployment_orchestrator};
 #[cfg(feature = "lua")]
-mod lua_transform;
-mod metrics;
-mod prometheus_remote_write;
-mod eventbridge;
-mod middleware;
-mod models;
-mod normalizer;
-mod notification_dedup;
-
+use soroban_pulse::lua_transform;
 #[cfg(feature = "parquet")]
-mod parquet_export;
-mod warehouse;
-
-mod pruner;
-mod pubsub;
-mod queue_publisher;
-mod rate_limiter;
-mod reencrypt;
-mod resource_metrics;
-mod routes;
-mod rpc_client;
-mod schema_validator;
-mod sqs;
-mod stats_refresh;
-mod subscriptions;
-mod webhook;
-mod webhook_verification;
-mod notification_rate_limit;
-mod notification_formatter;
-mod pagerduty;
-mod github;
-mod discord;
-mod slack;
-mod teams;
-mod telegram;
-mod notification_channel;
-mod notification_delivery;
-mod integration_handlers;
-mod retry_policy;
-mod sms;
-mod aggregation;
-mod saved_queries;
-mod abi;
-mod oncall;
-mod xdr_validation;
-mod replica_monitor;
-mod feature_flags;
+use soroban_pulse::parquet_export;
 #[cfg(feature = "graphql")]
-mod graphql;
+use soroban_pulse::graphql;
 #[cfg(feature = "graphql")]
-mod graphql_subscriptions;
-mod event_dedup_replicas;
-mod bulk_export;
-mod sse_ring_buffer;
-mod query_cache;
-mod query_plan_cache;
-mod query_optimizer;
-mod partition_manager;
-mod query_builder;
-mod adaptive_pool;
-mod notification_admin;
-mod financial_accuracy;
-mod webhook_template;
-mod event_aggregation;
-mod anomaly_detection;
-mod push_notification;
-mod connection_pool;
-mod slo_tracker;
-
-// These modules were already part of the library target (see src/lib.rs) but
-// missing here, leaving `crate::pool_management` and friends unresolved in
-// handlers.rs when compiling the `soroban-pulse` binary. `clippy::pedantic`
-// is scoped off since these files were never linted against it before.
-#[allow(clippy::pedantic)]
-mod anonymization;
-#[allow(clippy::pedantic)]
-mod event_compression;
-#[allow(clippy::pedantic)]
-mod health_check;
-#[allow(clippy::pedantic)]
-mod ledger_hashes;
-#[allow(clippy::pedantic)]
-mod networks;
-// Issue #942: same gap as the modules above — zero_trust.rs was part of
-// the library target but missing from the binary, so `crate::zero_trust`
-// was unresolved for anything in the binary (e.g. middleware/ip_access.rs).
-#[allow(clippy::pedantic)]
-mod zero_trust;
-#[allow(clippy::pedantic)]
-mod pool_management;
-#[allow(clippy::pedantic)]
-mod push_preload;
-#[allow(clippy::pedantic)]
-mod statistics_management;
-
+use soroban_pulse::graphql_subscriptions;
 #[cfg(feature = "archive")]
-mod archiver;
-
-mod cloud_provider;
-mod cloud_replication;
-mod deployment_orchestrator;
+use soroban_pulse::archiver;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -613,7 +495,7 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "kafka")]
     if let (Some(brokers), Some(topic)) = (&config.kafka_brokers, &config.kafka_topic) {
-        match crate::kafka::RdKafkaProducer::new(
+        match soroban_pulse::kafka::RdKafkaProducer::new(
             brokers,
             config.kafka_batch_size,
             config.kafka_linger_ms,
