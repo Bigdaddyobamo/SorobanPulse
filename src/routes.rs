@@ -763,7 +763,7 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/healthz/ready", get(handlers::health_ready))
         .route("/healthz/postgres", get(handlers::health_postgres))
         .route("/healthz/rpc", get(handlers::health_rpc))
-        .route("/healthz/external/:service", get(handlers::health_external))
+        .route("/healthz/external/{service}", get(handlers::health_external))
         .route("/unsubscribe", get(handlers::unsubscribe))
         .route("/metrics", get(handlers::metrics));
 
