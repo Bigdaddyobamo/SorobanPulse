@@ -1237,9 +1237,20 @@ impl<R: RpcClient> Indexer<R> {
         // Issue #609: stamp chain_id on every inserted event.
         let chain_id = &self.config.chain_id;
 
+        // Issue #1065: decode the RPC event id (TOID + event index) into
+        // deterministic (tx_index, op_index, event_index) columns so that
+        // ordering within a ledger is stable across re-indexing/replicas.
+        let ordinal = event
+            .rpc_id
+            .as_deref()
+            .and_then(crate::toid::parse_event_id);
+        let tx_index = ordinal.map(|o| o.tx_index);
+        let op_index = ordinal.map(|o| o.op_index);
+        let event_index = ordinal.map(|o| o.event_index);
+
         let result = sqlx::query(
-            r#"INSERT INTO events (contract_id, event_type, tx_hash, ledger, timestamp, event_data, ledger_hash, in_successful_call, event_data_decoded, tenant_id, fingerprint, event_data_compressed, compression_algo, chain_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            r#"INSERT INTO events (contract_id, event_type, tx_hash, ledger, timestamp, event_data, ledger_hash, in_successful_call, event_data_decoded, tenant_id, fingerprint, event_data_compressed, compression_algo, chain_id, tx_index, op_index, event_index)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                ON CONFLICT (tx_hash, contract_id, event_type) DO NOTHING"#,
         )
         .bind(&event.contract_id)
@@ -1256,6 +1267,9 @@ impl<R: RpcClient> Indexer<R> {
         .bind(compressed_bytes.as_deref())
         .bind(compression_algo)
         .bind(chain_id)
+        .bind(tx_index)
+        .bind(op_index)
+        .bind(event_index)
         .execute(&mut **tx)
         .await?;
 

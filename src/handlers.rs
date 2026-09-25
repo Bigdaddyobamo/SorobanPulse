@@ -3050,7 +3050,12 @@ pub async fn get_events_feed(
             query.push_bind(tid);
         }
     }
-    query.push(" ORDER BY ledger DESC, id DESC LIMIT ");
+    // Issue #1065: order deterministically within a ledger using the
+    // decoded TOID fields before falling back to insertion id, so
+    // re-indexing and replicas agree on order regardless of insert order.
+    query.push(
+        " ORDER BY ledger DESC, tx_index DESC NULLS LAST, op_index DESC NULLS LAST, event_index DESC NULLS LAST, id DESC LIMIT ",
+    );
     query.push_bind(limit);
 
     let rows = query.build().fetch_all(&state.read_pool).await?;

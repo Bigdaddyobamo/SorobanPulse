@@ -157,6 +157,19 @@ pub struct Event {
     /// #935). Defaults to "soroban-mainnet" for backward compatibility.
     #[sqlx(default)]
     pub network: String,
+    /// Transaction order within the ledger, decoded from the RPC event's
+    /// TOID (Issue #1065). `None` for events indexed before this field
+    /// existed, or where the id could not be parsed.
+    #[sqlx(default)]
+    pub tx_index: Option<i32>,
+    /// Operation index within the transaction, decoded from the TOID
+    /// (Issue #1065).
+    #[sqlx(default)]
+    pub op_index: Option<i32>,
+    /// Event index within the operation, decoded from the RPC event id
+    /// suffix (Issue #1065).
+    #[sqlx(default)]
+    pub event_index: Option<i32>,
     #[sqlx(default)]
     #[serde(skip)]
     pub total_count: i64,
@@ -849,8 +862,12 @@ pub struct GetEventsResult {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SorobanEvent {
     /// Stable SSE event ID assigned by the ring buffer (not persisted to DB).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
     pub id: Option<Uuid>,
+    /// Raw RPC event id (TOID + event index), used to derive deterministic
+    /// intra-ledger ordering (Issue #1065). Not the same as `id` above.
+    #[serde(rename = "id", default, skip_serializing)]
+    pub rpc_id: Option<String>,
     #[serde(rename = "contractId")]
     pub contract_id: String,
     #[serde(rename = "type")]
