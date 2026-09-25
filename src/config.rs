@@ -957,7 +957,59 @@ fn parse_tenant_contract_filter() -> std::collections::HashMap<String, Vec<Strin
     map
 }
 
+/// One network to run a concurrent indexer worker against (Issue #1063).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkTarget {
+    pub chain_id: String,
+    pub rpc_url: String,
+}
+
 impl Config {
+    /// Resolve the set of networks this deployment should index concurrently
+    /// (Issue #1063). The primary network is always `chain_id` /
+    /// `stellar_rpc_url`. Each entry in `additional_chain_ids` becomes a
+    /// second worker, with its RPC URL taken from the
+    /// `STELLAR_RPC_URL_<CHAIN_ID>` environment variable (chain id
+    /// upper-cased, non-alphanumeric characters replaced with `_`) — e.g.
+    /// `ADDITIONAL_CHAIN_IDS=testnet` reads `STELLAR_RPC_URL_TESTNET`.
+    /// An additional chain id with no matching RPC URL is skipped with a
+    /// warning rather than aborting the whole deployment.
+    pub fn network_targets(&self) -> Vec<NetworkTarget> {
+        let mut targets = vec![NetworkTarget {
+            chain_id: self.chain_id.clone(),
+            rpc_url: self.stellar_rpc_url.clone(),
+        }];
+        for chain_id in &self.additional_chain_ids {
+            if chain_id == &self.chain_id {
+                continue; // already the primary network
+            }
+            let env_key = format!(
+                "STELLAR_RPC_URL_{}",
+                chain_id
+                    .to_ascii_uppercase()
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                    .collect::<String>()
+            );
+            match std::env::var(&env_key) {
+                Ok(rpc_url) if !rpc_url.trim().is_empty() => {
+                    targets.push(NetworkTarget {
+                        chain_id: chain_id.clone(),
+                        rpc_url,
+                    });
+                }
+                _ => {
+                    tracing::warn!(
+                        chain_id = %chain_id,
+                        env_key = %env_key,
+                        "additional chain_id has no RPC URL configured; skipping this network"
+                    );
+                }
+            }
+        }
+        targets
+    }
+
     /// Returns the DATABASE_URL with credentials stripped — safe to log.
     pub fn safe_db_url(&self) -> String {
         Url::parse(&self.database_url)

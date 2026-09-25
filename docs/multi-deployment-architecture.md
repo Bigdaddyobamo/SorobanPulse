@@ -225,3 +225,63 @@ For read traffic, choose a consistency mode per workload:
 | Public event search | Replica with lag checks | Reject or reroute when replica lag exceeds the SLA |
 
 Use idempotent consumers and ledger checkpoints to handle duplicate reads after failover. After promotion, verify the new primary has replayed all WAL up to the last known `indexer_checkpoints` row before enabling webhook delivery.
+
+## Concurrent Multi-Network Indexing (Issue #1063)
+
+Rather than running separate deployments per network, a single SorobanPulse
+instance can index several Stellar networks (e.g. testnet and mainnet)
+concurrently, sharing one HTTP API, one connection pool and one SSE fan-out.
+
+### Migrating from a single-network config
+
+Existing single-network deployments need no changes: `CHAIN_ID` and
+`STELLAR_RPC_URL` keep behaving exactly as before, and `ADDITIONAL_CHAIN_IDS`
+defaults to empty.
+
+To add networks, set:
+
+```bash
+CHAIN_ID=mainnet
+STELLAR_RPC_URL=https://mainnet.stellar.validationcloud.io/v1/soroban/rpc
+
+ADDITIONAL_CHAIN_IDS=testnet
+STELLAR_RPC_URL_TESTNET=https://soroban-testnet.stellar.org
+```
+
+Each chain id in `ADDITIONAL_CHAIN_IDS` requires a matching
+`STELLAR_RPC_URL_<CHAIN_ID>` variable (chain id upper-cased, non-alphanumeric
+characters replaced with `_`). A chain id with no matching RPC URL is
+skipped at startup with a warning — the deployment still starts, indexing
+only the networks it has RPC URLs for.
+
+### How it works
+
+- One indexer task is spawned per configured network (`src/main.rs`), each
+  with its own `SorobanRpcClient` pointed at that network's RPC URL.
+- Each network's indexer takes its own Postgres advisory lock, keyed off a
+  hash of its `chain_id` (`indexer::lock_key_for_chain`), so networks never
+  contend for the same singleton lock the way active-passive failover does
+  within one network.
+- Indexer state (checkpoints, `indexer_state` row) is already keyed by
+  `chain_id` from the existing multi-chain support (#609), so each network
+  tracks its own checkpoint independently.
+- All networks share the connection pool, the broadcast channel used for SSE
+  and WebSocket fan-out, and the SSE ring buffer.
+- Every inserted event is stamped with `chain_id`. Event endpoints accept an
+  optional `network` query parameter that filters on this column
+  (`GET /v1/events?network=testnet`); omitting it returns events across all
+  configured networks, so existing single-network clients see no change.
+- Indexer lag is exposed per network as
+  `soroban_pulse_network_indexer_lag_ledgers{chain_id="..."}`, in addition to
+  the existing global `soroban_pulse_indexer_lag_ledgers` gauge (which still
+  reflects whichever network last updated it).
+
+### Limitations
+
+- Feature integrations that are wired to the single primary indexer
+  instance in `main.rs` (Kafka/Kinesis/Pub/Sub/Event Hubs publishers, Lua
+  transforms) are only attached to the primary network's indexer today.
+  Attaching them per-network is a straightforward follow-up if a deployment
+  needs it.
+- The live SSE stream does not yet expose a `network` filter (only replayed
+  events honor `format`/network filtering); this is tracked as a follow-up.

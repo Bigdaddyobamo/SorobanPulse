@@ -223,6 +223,10 @@ pub struct PaginationParams {
     pub tenant_id: Option<String>,
     /// Rendering for ScVal event data: `native`, `json` (default) or `xdr` (Issue #1064).
     pub format: Option<String>,
+    /// Filter by network/chain_id (e.g. "mainnet", "testnet") when indexing
+    /// multiple networks concurrently from one deployment (Issue #1063).
+    /// Omitted returns events from every configured network.
+    pub network: Option<String>,
 }
 
 /// Sort order for event list endpoints.

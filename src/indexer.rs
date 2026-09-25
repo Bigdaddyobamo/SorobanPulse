@@ -34,6 +34,27 @@ pub trait RpcClient: Send + Sync {
 /// Postgres advisory lock key for the indexer singleton.
 const INDEXER_LOCK_KEY: i64 = 0x536f726f62616e50; // "SorobanP"
 
+/// Derive a per-network advisory lock key (Issue #1063) so that concurrent
+/// indexer workers for different networks (e.g. testnet and mainnet) don't
+/// contend for the same singleton lock. The primary network (whatever
+/// `CHAIN_ID` is set to) keeps the original constant so single-network
+/// deployments upgrading to this version don't lose their lock continuity;
+/// every other chain_id gets a distinct derived key.
+fn lock_key_for_chain(chain_id: &str) -> i64 {
+    if chain_id == "mainnet" {
+        return INDEXER_LOCK_KEY;
+    }
+    // FNV-1a over the chain_id, folded into a non-zero i64. Advisory lock
+    // keys just need to be stable and (very likely) distinct per network —
+    // they are not used cryptographically.
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in chain_id.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    (hash as i64) ^ INDEXER_LOCK_KEY
+}
+
 #[derive(Debug, thiserror::Error)]
 enum IndexerFetchError {
     #[error("{0}")]
@@ -427,6 +448,10 @@ impl<R: RpcClient> Indexer<R> {
         let mut interval = tokio::time::interval(retry_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let lock_wait_start = std::time::Instant::now();
+        // Issue #1063: each network's indexer worker takes its own advisory
+        // lock key, so testnet/mainnet/etc. can each have a leader running
+        // concurrently instead of contending for one global lock.
+        let lock_key = lock_key_for_chain(&self.config.chain_id);
 
         loop {
             // Respect shutdown signal while waiting to acquire the lock.
@@ -443,14 +468,14 @@ impl<R: RpcClient> Indexer<R> {
             }
 
             let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-                .bind(INDEXER_LOCK_KEY)
+                .bind(lock_key)
                 .fetch_one(&self.pool)
                 .await
                 .unwrap_or(false);
 
             if acquired {
                 info!(
-                    lock_key = INDEXER_LOCK_KEY,
+                    lock_key = lock_key,
                     "Indexer lock acquired, starting indexing"
                 );
                 if let Some(ref s) = self.indexer_state {
@@ -465,7 +490,7 @@ impl<R: RpcClient> Indexer<R> {
             let lock_holder_pid: Option<i32> = sqlx::query_scalar(
                 "SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND objid = $1 LIMIT 1"
             )
-            .bind(INDEXER_LOCK_KEY as i32)
+            .bind(lock_key as i32)
             .fetch_optional(&self.pool)
             .await
             .ok()
@@ -475,7 +500,7 @@ impl<R: RpcClient> Indexer<R> {
             metrics::update_indexer_lock_wait_duration(lock_wait_secs);
 
             warn!(
-                lock_key = INDEXER_LOCK_KEY,
+                lock_key = lock_key,
                 lock_holder_pid = lock_holder_pid,
                 retry_secs = self.config.indexer_lock_retry_secs,
                 wait_secs = lock_wait_secs,
@@ -497,7 +522,7 @@ impl<R: RpcClient> Indexer<R> {
 
         // Explicitly release the advisory lock on graceful shutdown.
         let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-            .bind(INDEXER_LOCK_KEY)
+            .bind(lock_key)
             .execute(&self.pool)
             .await;
         metrics::record_indexer_is_leader(false);
@@ -600,6 +625,7 @@ impl<R: RpcClient> Indexer<R> {
                             let lag = result.latest_ledger - current_ledger;
                             metrics::update_indexer_lag(lag);
                             metrics::record_indexer_lag_observation(lag);
+                            metrics::update_network_indexer_lag(&self.config.chain_id, lag);
 
                             // Warn if lag exceeds threshold
                             if lag > self.config.indexer_lag_warn_threshold {
@@ -619,6 +645,7 @@ impl<R: RpcClient> Indexer<R> {
                             let lag = latest.saturating_sub(current_ledger);
                             metrics::update_indexer_lag(lag);
                             metrics::record_indexer_lag_observation(lag);
+                            metrics::update_network_indexer_lag(&self.config.chain_id, lag);
                         }
                         sleep(Duration::from_millis(self.config.indexer_poll_interval_ms)).await;
                     }
