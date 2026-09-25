@@ -813,8 +813,12 @@ pub fn create_router_with_tx_and_tenant_map(
             .layer(GovernorLayer::new(governor_conf))
     };
 
+    // Issue #1112: static dashboard at /ui — outside auth-gated rate limiting.
+    let dashboard_routes = crate::dashboard::router(&app_state.config);
+
     Router::new()
         .merge(health_routes)
+        .merge(dashboard_routes)
         .merge(rate_limited_routes)
         .layer(axum::middleware::from_fn(
             middleware::security_headers_middleware,
@@ -924,6 +928,9 @@ fn build_cors(allowed_origins: &[String]) -> CorsLayer {
         axum::http::header::CONTENT_TYPE,
         axum::http::header::HeaderName::from_static("x-api-key"),
         axum::http::header::HeaderName::from_static("x-request-id"),
+        // Lets cross-origin SSE clients (e.g. the embeddable feed widget, #1111)
+        // resume a stream after reconnecting.
+        axum::http::header::HeaderName::from_static("last-event-id"),
     ];
     let exposed_headers = [axum::http::header::HeaderName::from_static("x-request-id")];
     let max_age = std::time::Duration::from_secs(86400);

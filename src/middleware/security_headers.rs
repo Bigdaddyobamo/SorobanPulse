@@ -15,7 +15,8 @@ use axum::{extract::Request, middleware::Next, response::Response};
 /// - `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
 /// - `X-XSS-Protection: 1; mode=block`
 /// - `Permissions-Policy: …` (all powerful features disabled)
-/// - `Content-Security-Policy` (strict for API routes; relaxed for `/docs`)
+/// - `Content-Security-Policy` (strict for API routes; relaxed for `/docs`;
+///   the `/ui` dashboard keeps the policy set by `crate::dashboard`)
 pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     let path = req.uri().path().to_owned();
     let mut response = next.run(req).await;
@@ -48,7 +49,10 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     } else {
         "default-src 'none'; frame-ancestors 'none';"
     };
-    h.insert("Content-Security-Policy", csp.parse().unwrap());
+    // The /ui dashboard sets its own policy (see crate::dashboard); keep it.
+    if !(crate::dashboard::is_dashboard_path(&path) && h.contains_key("Content-Security-Policy")) {
+        h.insert("Content-Security-Policy", csp.parse().unwrap());
+    }
 
     response
 }

@@ -438,6 +438,18 @@ pub struct Config {
     /// Disabled by default. Set ENABLE_PUSH_PRELOAD=true to opt in.
     pub enable_push_preload: bool,
 
+    // Issue #1112: built-in web dashboard
+    /// Serve the web dashboard (web/dist) at /ui. Requires the `dashboard`
+    /// cargo feature. Set SERVE_DASHBOARD=true to opt in.
+    pub serve_dashboard: bool,
+    /// Directory containing the built dashboard (index.html + assets/).
+    /// Defaults to `web/dist`. Set via DASHBOARD_DIR.
+    pub dashboard_dir: String,
+    /// Extra origins the dashboard may call, appended to the `connect-src`
+    /// directive of its Content-Security-Policy (comma-separated
+    /// DASHBOARD_CONNECT_SRC). Same-origin API calls are always allowed.
+    pub dashboard_connect_src: Vec<String>,
+
     // Issue #705: Kafka event publishing
     /// Comma-separated list of Kafka broker addresses (e.g., "localhost:9092,localhost:9093").
     /// When set, events are published to Kafka topic specified by kafka_topic.
@@ -629,6 +641,9 @@ impl Default for Config {
             query_cache_ttl_secs: crate::query_cache::DEFAULT_TTL_SECS,
             query_cache_max_capacity: crate::query_cache::DEFAULT_MAX_CAPACITY,
             enable_push_preload: false,
+            serve_dashboard: false,
+            dashboard_dir: "web/dist".to_string(),
+            dashboard_connect_src: Vec::new(),
             kafka_brokers: None,
             kafka_topic: None,
             kafka_batch_size: 16384,
@@ -1679,6 +1694,18 @@ impl Config {
             enable_push_preload: env_or_file("ENABLE_PUSH_PRELOAD", &file)
                 .map(|v| matches!(v.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
                 .unwrap_or(false),
+            serve_dashboard: env_or_file("SERVE_DASHBOARD", &file)
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+                .unwrap_or(false),
+            dashboard_dir: env_or_file_or("DASHBOARD_DIR", &file, "web/dist"),
+            dashboard_connect_src: env_or_file("DASHBOARD_CONNECT_SRC", &file)
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
             // Issue #705: Kafka event publishing
             kafka_brokers: env_or_file("KAFKA_BROKERS", &file),
             kafka_topic: env_or_file("KAFKA_TOPIC", &file),
