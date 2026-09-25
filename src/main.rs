@@ -8,13 +8,16 @@
 mod audit_logging;
 mod bloom_filter;
 mod compliance_report;
+mod compression_config;
 mod config;
 mod dashboard;
+mod config_validation;
 mod content_filter;
 mod cross_chain_correlation;
 mod cursor_expiry_handler;
 mod db;
 mod advisory_lock;
+mod query_streaming;
 mod serialization_cache;
 mod streaming_response;
 mod dedup;
@@ -25,6 +28,8 @@ mod error;
 mod event_hubs;
 mod graceful_shutdown;
 mod handlers;
+mod idempotency;
+mod log_analysis_tool;
 mod index_monitor;
 mod indexer;
 mod kafka;
@@ -32,6 +37,8 @@ mod kinesis;
 #[cfg(feature = "lua")]
 mod lua_transform;
 mod metrics;
+mod prometheus_remote_write;
+mod eventbridge;
 mod middleware;
 mod models;
 mod normalizer;
@@ -39,6 +46,7 @@ mod notification_dedup;
 
 #[cfg(feature = "parquet")]
 mod parquet_export;
+mod warehouse;
 
 mod pruner;
 mod pubsub;
@@ -60,8 +68,10 @@ mod pagerduty;
 mod github;
 mod discord;
 mod slack;
+mod teams;
 mod telegram;
 mod notification_channel;
+mod notification_delivery;
 mod integration_handlers;
 mod retry_policy;
 mod sms;
@@ -85,26 +95,14 @@ mod query_optimizer;
 mod partition_manager;
 mod query_builder;
 mod adaptive_pool;
-mod pool_management;
-mod statistics_management;
 mod notification_admin;
-mod push_preload;
 mod financial_accuracy;
 mod webhook_template;
 mod event_aggregation;
 mod anomaly_detection;
 mod push_notification;
 mod connection_pool;
-mod pool_management;
-mod adaptive_pool;
 mod slo_tracker;
-mod statistics_management;
-mod notification_admin;
-mod push_preload;
-mod financial_accuracy;
-mod webhook_template;
-mod event_aggregation;
-mod anomaly_detection;
 
 // These modules were already part of the library target (see src/lib.rs) but
 // missing here, leaving `crate::pool_management` and friends unresolved in
@@ -120,6 +118,11 @@ mod health_check;
 mod ledger_hashes;
 #[allow(clippy::pedantic)]
 mod networks;
+// Issue #942: same gap as the modules above — zero_trust.rs was part of
+// the library target but missing from the binary, so `crate::zero_trust`
+// was unresolved for anything in the binary (e.g. middleware/ip_access.rs).
+#[allow(clippy::pedantic)]
+mod zero_trust;
 #[allow(clippy::pedantic)]
 mod pool_management;
 #[allow(clippy::pedantic)]
@@ -189,6 +192,19 @@ async fn main() -> anyhow::Result<()> {
     metrics::spawn_memory_collector();
 
     let config = config::Config::from_env();
+
+    // Issue #997: Validate the fully-loaded configuration before doing anything else.
+    {
+        let report = config_validation::validate(&config);
+        report.log();
+        if !report.is_ok() {
+            eprintln!(
+                "Configuration validation failed with {} error(s) — aborting startup.",
+                report.errors.len()
+            );
+            std::process::exit(1);
+        }
+    }
 
     info!(
         rpc_url = %config.stellar_rpc_url,

@@ -24,7 +24,7 @@ struct ApiKeyExtractor;
 impl KeyExtractor for ApiKeyExtractor {
     type Key = String;
 
-    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<String, GovernorError> {
         let bearer = req
             .headers()
             .get("Authorization")
@@ -39,8 +39,36 @@ impl KeyExtractor for ApiKeyExtractor {
         bearer.or(x_api_key).ok_or(GovernorError::UnableToExtractKey)
     }
 }
+
+pub async fn get_events_with_params(
+    State(state): State<AppState>,
+    Query(params): Query<crate::models::PaginationParams>,
+) -> Result<Json<crate::models::Paginated<Event>>, AppError> {
+    let response = handlers::get_events(
+        State(state),
+        Query(params),
+        axum::http::HeaderMap::new(),
+        axum::http::Extensions::new(),
+    )
+    .await?;
+
+    let payload = response.into_body();
+    let bytes = axum::body::to_bytes(payload, usize::MAX)
+        .await
+        .map_err(|e| crate::error::AppError::Internal(format!("failed to decode events response: {}", e)))?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| crate::error::AppError::Internal(format!("failed to parse events response: {}", e)))?;
+    let records: Vec<Event> = serde_json::from_value(value["events"].clone())
+        .map_err(|e| crate::error::AppError::Internal(format!("failed to decode event records: {}", e)))?;
+    Ok(Json(crate::models::Paginated {
+        data: records,
+        page: value["page"].as_i64().unwrap_or(1),
+        limit: value["limit"].as_i64().unwrap_or(20),
+        total: value["total"].as_i64().unwrap_or(0),
+        has_more: value["has_more"].as_bool().unwrap_or(false),
+    }))
+}
 use tower_http::{
-    compression::CompressionLayer,
     cors::CorsLayer,
     limit::RequestBodyLimitLayer,
     request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
@@ -605,6 +633,11 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/subscriptions/{id}/integrations/slack", axum::routing::post(crate::integration_handlers::setup_slack_integration).get(crate::integration_handlers::get_slack_integration).delete(crate::integration_handlers::delete_slack_integration))
         // Issue #677: Telegram integration
         .route("/subscriptions/{id}/integrations/telegram", axum::routing::post(crate::integration_handlers::setup_telegram_integration).get(crate::integration_handlers::get_telegram_integration).delete(crate::integration_handlers::delete_telegram_integration))
+        // Issue #951: PagerDuty integration
+        .route("/subscriptions/{id}/integrations/pagerduty", axum::routing::post(crate::integration_handlers::setup_pagerduty_integration).get(crate::integration_handlers::get_pagerduty_integration).delete(crate::integration_handlers::delete_pagerduty_integration))
+        .route("/subscriptions/{id}/integrations/pagerduty/incidents", axum::routing::get(crate::integration_handlers::list_pagerduty_incidents))
+        .route("/subscriptions/{id}/integrations/pagerduty/incidents/acknowledge", axum::routing::post(crate::integration_handlers::acknowledge_pagerduty_incident))
+        .route("/subscriptions/{id}/integrations/pagerduty/incidents/resolve", axum::routing::post(crate::integration_handlers::resolve_pagerduty_incident))
         // Issue #487: email open tracking (public – email clients fetch the pixel)
         .route("/notifications/email/track/{token}", get(handlers::track_email_open))
         // Issue #487: email open stats (admin)
@@ -661,6 +694,21 @@ pub fn create_router_with_tx_and_tenant_map(
             "/push/{contract_id}/abi",
             axum::routing::get(crate::push_preload::get_push_abi),
         )
+        // Issue #931: Batch event operations
+        .route("/events/batch/retrieve", axum::routing::post(crate::batch_operations::batch_retrieve_events))
+        .route("/events/batch/delete", axum::routing::post(crate::batch_operations::batch_delete_events))
+        .route("/events/batch/tag", axum::routing::post(crate::batch_operations::batch_tag_events))
+        .route("/events/batch/subscriptions", axum::routing::post(crate::batch_operations::batch_update_subscriptions))
+        .route("/events/batch/transform", axum::routing::post(crate::batch_operations::batch_transform_events))
+        .route("/events/batch/progress/{job_id}", axum::routing::get(crate::batch_operations::get_batch_progress))
+        // Issue #929: Real-time event stream statistics
+        .route("/stats/stream", axum::routing::get(crate::stream_statistics::get_stream_stats))
+        .route("/stats/stream/throughput", axum::routing::get(crate::stream_statistics::get_stream_throughput))
+        .route("/stats/stream/{contract_id}", axum::routing::get(crate::stream_statistics::get_contract_stream_stats))
+        // Issue #928: Event filtering DSL
+        .route("/events/filter", axum::routing::post(crate::filter_dsl::get_events_with_dsl))
+        .route("/admin/dsl/compile", axum::routing::post(crate::filter_dsl::compile_dsl_filter))
+        .route("/admin/dsl/filters", axum::routing::post(crate::filter_dsl::save_dsl_filter).get(crate::filter_dsl::list_dsl_filters))
         // Append Link preload headers to responses for
         // /v1/events/contract/{contract_id} when the feature flag is on.
         .route_layer(axum::middleware::from_fn_with_state(
@@ -820,12 +868,23 @@ pub fn create_router_with_tx_and_tenant_map(
         .merge(health_routes)
         .merge(dashboard_routes)
         .merge(rate_limited_routes)
-        .layer(axum::middleware::from_fn(
-            middleware::security_headers_middleware,
-        ))
+        .layer(axum::middleware::from_fn({
+            let security_headers_config = middleware::SecurityHeadersConfig::from_env();
+            move |req, next| {
+                let config = security_headers_config.clone();
+                middleware::security_headers_middleware_with_config(config, req, next)
+            }
+        }))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit_headers_middleware,
+        ))
+        // Issue #942: registered after (so it runs before, in tower's
+        // outside-in layering) rate limiting — a blocked IP should never
+        // spend a rate-limit quota check before being rejected.
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            middleware::ip_access_control_middleware,
         ))
         .layer(axum::middleware::from_fn(middleware::head_middleware))
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
@@ -887,7 +946,14 @@ pub fn create_router_with_tx_and_tenant_map(
             }),
         )
         .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(CompressionLayer::new())
+        .layer(crate::compression_config::CompressionSettings::from_env().layer())
+        // Issue #961: registered *after* (so it wraps, and on the
+        // response path runs *after*) CompressionLayer, so it observes the
+        // final Content-Encoding header rather than the pre-compression
+        // response.
+        .layer(axum::middleware::from_fn(
+            crate::compression_config::compression_metrics_middleware,
+        ))
         .layer(SetRequestIdLayer::x_request_id(UuidMakeRequestId))
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MB default
         .with_state(app_state)
@@ -1092,6 +1158,53 @@ mod tests {
             .unwrap();
 
         assert!(response.headers().get(header::CONTENT_ENCODING).is_none());
+    }
+
+    /// Issue #961: responses smaller than the configured floor must bypass
+    /// compression even when the client advertises gzip support, while
+    /// large responses are still compressed.
+    #[tokio::test]
+    async fn compression_settings_bypass_small_responses() {
+        std::env::set_var("COMPRESSION_MIN_SIZE_BYTES", "512");
+
+        let settings = crate::compression_config::CompressionSettings::from_env();
+        let app = Router::new()
+            .route("/small", axum::routing::get(|| async { "ok" }))
+            .route("/large", axum::routing::get(|| async { "A".repeat(2000) }))
+            .layer(settings.layer());
+
+        let small = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/small")
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            small.headers().get(header::CONTENT_ENCODING).is_none(),
+            "small responses must bypass compression"
+        );
+
+        let large = app
+            .oneshot(
+                Request::builder()
+                    .uri("/large")
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            large.headers().get(header::CONTENT_ENCODING).unwrap(),
+            "gzip"
+        );
+
+        std::env::remove_var("COMPRESSION_MIN_SIZE_BYTES");
     }
 
     /// Build a minimal router with GovernorLayer using SmartIpKeyExtractor so tests
