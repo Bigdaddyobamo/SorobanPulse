@@ -1,3 +1,4 @@
+pub mod contract_specs;
 pub mod account_events;
 pub mod token_events;
 pub mod abi;
