@@ -27,6 +27,12 @@ The dev server proxies `/api/*` requests to `http://localhost:8080` (see
 - **System status dashboard** (`src/pages/StatusDashboard.tsx`) — polls
   `/api/status` and `/api/metrics` every 15s, rendering health, uptime,
   version, and time-series charts for ingestion throughput and latency.
+- **Event Explorer** (`src/pages/EventExplorerPage.tsx`) — searchable,
+  filterable table of indexed Soroban events with pagination, type badges,
+  and a detail drawer for inspecting event data and ScVal payloads.
+- **Event Detail** (`src/pages/EventDetailPage.tsx`) — full-screen detail
+  view for an individual event, showing summary metadata, ScVal data in
+  tree/table/code views, and raw JSON.
 - **Subscription management** (`src/pages/SubscriptionsPage.tsx`) — lists
   active/paused/failing subscriptions with their contract ID, webhook URL,
   and subscribed event types.
@@ -46,6 +52,8 @@ server (see `dashboard/src/api/client.ts` for the exact shapes):
 | `POST /api/auth/login` | Exchange email/password for a bearer token |
 | `GET /api/status` | Overall system health, uptime, version |
 | `GET /api/metrics?range=<minutes>` | Time-series ingestion/latency metrics |
+| `GET /api/events` | List events with filter, sort, and pagination params |
+| `GET /api/events/:id` | Fetch a single event by ID |
 | `GET /api/subscriptions` | List subscriptions and their status |
 | `GET /api/subscriptions/:id/deliveries` | Webhook delivery history |
 
@@ -65,10 +73,14 @@ component used throughout the status dashboard.
 ```
 dashboard/
   src/
-    api/client.ts        # typed fetch wrappers for the dashboard API
+    api/
+      client.ts          # typed fetch wrappers for the dashboard API
+      eventTypes.ts      # TypeScript interfaces for event data
     auth/                # AuthContext + RequireAuth route guard
-    components/          # NavBar, StatTile
-    pages/                # LoginPage, StatusDashboard, SubscriptionsPage, WebhooksPage
+    components/          # NavBar, StatTile, EventFilterBar, EventTable,
+                         # EmptyState, EventDrawer, ScValViewer, TruncatedText
+    pages/               # LoginPage, StatusDashboard, SubscriptionsPage,
+                         # WebhooksPage, EventExplorerPage, EventDetailPage
   tests/                 # Vitest + Testing Library specs
 ```
 

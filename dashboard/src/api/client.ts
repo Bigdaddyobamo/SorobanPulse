@@ -4,6 +4,8 @@ export interface SystemStatus {
   version: string;
 }
 
+export { type Event, type EventListResponse, type EventFilterParams } from "./eventTypes";
+
 export interface MetricPoint {
   timestamp: string;
   eventsIngested: number;
@@ -44,4 +46,23 @@ export const dashboardApi = {
   listSubscriptions: () => get<SubscriptionSummary[]>("/subscriptions"),
   listWebhookDeliveries: (subscriptionId: string) =>
     get<WebhookDelivery[]>(`/subscriptions/${subscriptionId}/deliveries`),
+  listEvents: (params: EventFilterParams = {}) => {
+    const searchParams = new URLSearchParams();
+    if (params.search) searchParams.set("search", params.search);
+    if (params.eventType) searchParams.set("event_type", params.eventType);
+    if (params.contractId) searchParams.set("contract_id", params.contractId);
+    if (params.contractIdPrefix) searchParams.set("contract_id_prefix", params.contractIdPrefix);
+    if (params.fromLedger != null) searchParams.set("from_ledger", String(params.fromLedger));
+    if (params.toLedger != null) searchParams.set("to_ledger", String(params.toLedger));
+    if (params.topic) searchParams.set("topic", params.topic);
+    if (params.fromTimestamp) searchParams.set("from_timestamp", params.fromTimestamp);
+    if (params.toTimestamp) searchParams.set("to_timestamp", params.toTimestamp);
+    if (params.sortBy) searchParams.set("sort_by", params.sortBy);
+    if (params.sortOrder) searchParams.set("sort_order", params.sortOrder);
+    if (params.page != null) searchParams.set("page", String(params.page));
+    if (params.limit != null) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return get<EventListResponse>(`/events${qs ? `?${qs}` : ""}`);
+  },
+  getEventById: (id: string) => get<Event>(`/events/${id}`),
 };

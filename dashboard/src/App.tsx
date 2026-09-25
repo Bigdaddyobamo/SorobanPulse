@@ -4,6 +4,8 @@ import { LoginPage } from "./pages/LoginPage";
 import { StatusDashboard } from "./pages/StatusDashboard";
 import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 import { WebhooksPage } from "./pages/WebhooksPage";
+import { EventExplorerPage } from "./pages/EventExplorerPage";
+import { EventDetailPage } from "./pages/EventDetailPage";
 import { NavBar } from "./components/NavBar";
 
 export function App() {
@@ -18,6 +20,22 @@ export function App() {
             element={
               <RequireAuth>
                 <StatusDashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/events"
+            element={
+              <RequireAuth>
+                <EventExplorerPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/events/:eventId"
+            element={
+              <RequireAuth>
+                <EventDetailPage />
               </RequireAuth>
             }
           />
