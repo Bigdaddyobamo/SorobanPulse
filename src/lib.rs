@@ -1,3 +1,4 @@
+pub mod resources;
 pub mod rpc_meta;
 pub mod backfill;
 pub mod abi;

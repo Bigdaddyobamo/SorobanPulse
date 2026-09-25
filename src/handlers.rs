@@ -15251,3 +15251,36 @@ pub async fn cleanup_export_files(
         "removed_jobs": removed,
     })))
 }
+
+/// GET /v1/contracts/{id}/resources?interval=day
+///
+/// Daily per-contract p50/p95 fee, instructions and I/O bytes.
+pub async fn get_contract_resources(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let interval = q.get("interval").map(String::as_str).unwrap_or("day");
+    if interval != "day" {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "only interval=day is supported"}))));
+    }
+    let rows: Vec<(chrono::DateTime<chrono::Utc>, i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<f64>)> =
+        sqlx::query_as(
+            "SELECT day, tx_count, fee_p50, fee_p95, instructions_p50, instructions_p95, io_bytes_p50, io_bytes_p95
+             FROM mv_contract_resources_daily WHERE contract_id = $1 ORDER BY day DESC LIMIT 90",
+        )
+        .bind(&id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    let data: Vec<Value> = rows
+        .into_iter()
+        .map(|(day, n, f5, f95, i5, i95, b5, b95)| json!({
+            "day": day, "tx_count": n,
+            "fee": {"p50": f5, "p95": f95},
+            "instructions": {"p50": i5, "p95": i95},
+            "io_bytes": {"p50": b5, "p95": b95},
+        }))
+        .collect();
+    Ok(Json(json!({"contract_id": id, "interval": "day", "data": data})))
+}

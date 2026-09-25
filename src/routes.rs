@@ -507,6 +507,7 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/admin/pool-config", axum::routing::get(handlers::get_pool_tuning_guide))
         .route("/admin/pool-config/statistics", axum::routing::get(handlers::get_pool_statistics))
         .route("/admin/pool-config/health", axum::routing::get(handlers::get_pool_health))
+        .route("/contracts/{id}/resources", axum::routing::get(handlers::get_contract_resources))
         .route("/admin/indexer/gaps", axum::routing::get(handlers::get_indexer_gaps))
         .route("/admin/pool-config/adaptive", axum::routing::get(handlers::get_adaptive_pool_status))
         .route("/admin/pool-config/adaptive/config", axum::routing::put(handlers::update_adaptive_pool_config))

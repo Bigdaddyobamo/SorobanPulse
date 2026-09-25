@@ -31,3 +31,9 @@ same region as the indexer. Private buckets need an authenticating proxy or sign
 Range planning, object keys, checkpoints, workers and metrics are implemented. Decoding
 `LedgerCloseMeta` XDR into events (`backfill::extract_events`) and the CLI subcommand wiring
 are not yet implemented (requires the `stellar-xdr` dependency).
+
+## Resource statistics (issue 1062)
+
+Set `RESOURCE_STATS_ENABLED=true` to fetch `getTransaction` (one extra RPC call per new
+event-emitting transaction, 50 per 30s) into `tx_resources`. Daily percentiles are served by
+`GET /v1/contracts/{id}/resources?interval=day` from `mv_contract_resources_daily`.

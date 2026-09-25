@@ -509,6 +509,7 @@ impl<R: RpcClient> Indexer<R> {
     }
 
     async fn run_loop(&self) {
+        crate::resources::spawn_sync(self.pool.clone(), self.config.stellar_rpc_url.clone());
         crate::rpc_meta::spawn_monitor(
             self.pool.clone(),
             self.config.stellar_rpc_url.clone(),
