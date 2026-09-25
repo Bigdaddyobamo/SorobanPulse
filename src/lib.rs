@@ -11,6 +11,7 @@ pub mod ledger_hashes;
 pub mod networks;
 pub mod contract_metadata;
 pub mod toid;
+pub mod scval_format;
 pub mod audit_logging;
 pub mod audit_trail;
 pub mod bloom_filter;

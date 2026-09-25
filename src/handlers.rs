@@ -338,6 +338,26 @@ fn rows_to_json(
     enc_key_old: Option<&[u8; 32]>,
     compact: bool,
 ) -> Result<Vec<Value>, AppError> {
+    rows_to_json_with_format(
+        rows,
+        columns,
+        enc_key,
+        enc_key_old,
+        compact,
+        crate::scval_format::ScValFormat::Json,
+    )
+}
+
+/// Like `rows_to_json`, but renders `event_data` (Issue #1064: `value` and
+/// `topic` ScVals) in the requested `format` (`native`, `json` or `xdr`).
+fn rows_to_json_with_format(
+    rows: &[sqlx::postgres::PgRow],
+    columns: &[&str],
+    enc_key: Option<&[u8; 32]>,
+    enc_key_old: Option<&[u8; 32]>,
+    compact: bool,
+    format: crate::scval_format::ScValFormat,
+) -> Result<Vec<Value>, AppError> {
     let mut events = Vec::with_capacity(rows.len());
     for row in rows {
         let mut event = serde_json::Map::new();
@@ -367,10 +387,11 @@ fn rows_to_json(
                 "event_data" => {
                     let raw: Value = row.try_get::<Value, _>(col)?;
                     let decrypted = decrypt_event_data(&raw, enc_key, enc_key_old);
+                    let rendered = crate::scval_format::render_event_data(&decrypted, format);
                     if compact {
-                        event.insert(col.to_string(), compact_event_data(&decrypted)?);
+                        event.insert(col.to_string(), compact_event_data(&rendered)?);
                     } else {
-                        event.insert(col.to_string(), decrypted);
+                        event.insert(col.to_string(), rendered);
                     }
                 }
                 "event_data_normalized" => {
@@ -1128,7 +1149,9 @@ pub async fn stream_events(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&extensions).map(|s| s.to_owned());
     let client_ip = extract_client_ip(&headers);
-    stream_events_internal(State(state), params.contract_id, params.fields, params.event_type, headers, tenant_id, client_ip)
+    let scval_format = crate::scval_format::parse_format(params.format.as_deref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e, "code": "VALIDATION_ERROR" }))))?;
+    stream_events_internal(State(state), params.contract_id, params.fields, params.event_type, headers, tenant_id, client_ip, scval_format)
         .await
 }
 
@@ -1162,7 +1185,9 @@ pub async fn stream_events_by_contract(
     })?;
     let tenant_id = extract_tenant_id(&extensions).map(|s| s.to_owned());
     let client_ip = extract_client_ip(&headers);
-    stream_events_internal(State(state), Some(contract_id), params.fields, params.event_type, headers, tenant_id, client_ip)
+    let scval_format = crate::scval_format::parse_format(params.format.as_deref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e, "code": "VALIDATION_ERROR" }))))?;
+    stream_events_internal(State(state), Some(contract_id), params.fields, params.event_type, headers, tenant_id, client_ip, scval_format)
         .await
 }
 
@@ -1558,6 +1583,7 @@ async fn stream_events_internal(
     headers: axum::http::HeaderMap,
     tenant_id: Option<String>,
     client_ip: String,
+    scval_format: crate::scval_format::ScValFormat,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<Value>)> {
     // Check if we've reached the max SSE connections limit
     let current_connections = state
@@ -1745,6 +1771,7 @@ async fn stream_events_internal(
     // DB fallback replay stream: full Event records from DB.
     let db_replay_stream = stream::iter(db_replay.into_iter().filter_map(move |mut ev| {
         ev.event_data = decrypt_event_data(&ev.event_data, enc_key.as_ref(), enc_key_old.as_ref());
+        ev.event_data = crate::scval_format::render_event_data(&ev.event_data, scval_format);
         let data = match &field_columns_replay {
             Some(cols) => serde_json::to_string(&filter_fields(
                 &ev,
@@ -2486,12 +2513,15 @@ pub async fn get_events(
             None
         };
 
-        let events = rows_to_json(
+        let scval_format = crate::scval_format::parse_format(params.format.as_deref())
+            .map_err(AppError::Validation)?;
+        let events = rows_to_json_with_format(
             &rows,
             &columns,
             state.encryption_key.as_ref(),
             state.encryption_key_old.as_ref(),
             params.compact.unwrap_or(false),
+            scval_format,
         )?;
 
         // Build ETag from last row's id + created_at

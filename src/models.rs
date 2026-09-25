@@ -221,6 +221,8 @@ pub struct PaginationParams {
     pub contract_id_prefix: Option<String>,
     /// Filter by tenant ID for multi-tenant isolation (Issue #887). Requires authentication.
     pub tenant_id: Option<String>,
+    /// Rendering for ScVal event data: `native`, `json` (default) or `xdr` (Issue #1064).
+    pub format: Option<String>,
 }
 
 /// Sort order for event list endpoints.
@@ -297,6 +299,9 @@ pub struct StreamParams {
     pub fields: Option<String>,
     /// Filter by event type: contract, diagnostic, system
     pub event_type: Option<EventType>,
+    /// Rendering for ScVal event data on replayed events: `native`, `json`
+    /// (default) or `xdr` (Issue #1064).
+    pub format: Option<String>,
 }
 
 /// Query parameters for the multi-contract SSE stream endpoint.
