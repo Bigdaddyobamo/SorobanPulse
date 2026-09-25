@@ -11476,9 +11476,13 @@ pub async fn create_notification_channel(
     if req.name.trim().is_empty() {
         return Err(AppError::Validation("name is required".to_string()));
     }
-    if !matches!(req.channel_type.as_str(), "webhook" | "email" | "sms") {
+    if !matches!(
+        req.channel_type.as_str(),
+        "webhook" | "email" | "sms" | "slack" | "discord" | "telegram" | "pagerduty" | "github"
+    ) {
         return Err(AppError::Validation(
-            "channel_type must be one of: webhook, email, sms".to_string(),
+            "channel_type must be one of: webhook, email, sms, slack, discord, telegram, pagerduty, github"
+                .to_string(),
         ));
     }
 
