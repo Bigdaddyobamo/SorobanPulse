@@ -9,6 +9,7 @@ pub mod conditional_get;
 pub mod event_compression;
 pub mod ledger_hashes;
 pub mod networks;
+pub mod contract_metadata;
 pub mod audit_logging;
 pub mod audit_trail;
 pub mod bloom_filter;

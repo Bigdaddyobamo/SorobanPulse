@@ -184,6 +184,8 @@ pub struct AppState {
         handlers::start_reencrypt,
         handlers::register_contract_abi,
         handlers::get_contract_abi,
+        handlers::upsert_contract_metadata,
+        handlers::get_contract_metadata,
         handlers::anonymize_event,
         handlers::pause_indexer,
         handlers::resume_indexer,
@@ -216,6 +218,8 @@ pub struct AppState {
     ),
     components(schemas(
         crate::models::Event,
+        crate::contract_metadata::ContractMetadata,
+        crate::contract_metadata::UpsertContractMetadata,
         crate::models::EventType,
         crate::models::SortOrder,
         crate::models::PaginationParams,
@@ -498,6 +502,8 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/admin/replay", axum::routing::post(handlers::replay_events))
         .route("/admin/reencrypt", axum::routing::post(handlers::start_reencrypt))
         .route("/admin/contracts/{contract_id}/abi", axum::routing::post(handlers::register_contract_abi).get(handlers::get_contract_abi))
+        .route("/admin/contracts/{contract_id}/metadata", axum::routing::post(handlers::upsert_contract_metadata).delete(handlers::delete_contract_metadata))
+        .route("/admin/contracts/metadata/import", axum::routing::post(handlers::bulk_import_contract_metadata))
         .route("/admin/events/{id}/anonymize", axum::routing::post(handlers::anonymize_event))
         .route("/admin/indexer/pause", axum::routing::post(handlers::pause_indexer))
         .route("/admin/indexer/resume", axum::routing::post(handlers::resume_indexer))
@@ -589,6 +595,7 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/config/anonymization/scan", axum::routing::post(handlers::scan_event_for_pii))
         .route("/cross-chain/trace/{tx_hash}", get(handlers::get_cross_chain_trace))
         .route("/cross-chain/causality", get(handlers::analyze_causality))
+        .route("/contracts/{contract_id}/metadata", get(handlers::get_contract_metadata))
         .route("/contracts/{contract_id}/summary", get(handlers::get_contract_summary))
         .route("/contracts/{contract_id}/event-counts", get(handlers::get_contract_event_counts))
         .route("/admin/replay", axum::routing::post(handlers::replay_events))
@@ -598,6 +605,8 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/admin/mask-events/{job_id}", get(handlers::get_mask_job_status))
         .route("/admin/notifications/channels", axum::routing::post(handlers::create_notification_channel))
         .route("/admin/contracts/{contract_id}/abi", axum::routing::post(handlers::register_contract_abi).get(handlers::get_contract_abi))
+        .route("/admin/contracts/{contract_id}/metadata", axum::routing::post(handlers::upsert_contract_metadata).delete(handlers::delete_contract_metadata))
+        .route("/admin/contracts/metadata/import", axum::routing::post(handlers::bulk_import_contract_metadata))
         .route("/admin/events/{id}/anonymize", axum::routing::post(handlers::anonymize_event))
         .route("/admin/events/contract/{contract_id}", axum::routing::delete(handlers::delete_contract_events))
         .route("/admin/indexer/pause", axum::routing::post(handlers::pause_indexer))

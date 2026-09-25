@@ -4319,6 +4319,96 @@ pub async fn get_contract_abi(
     Ok(Json(json!({ "contract_id": contract_id, "abi": abi, "created_at": created_at, "updated_at": updated_at })))
 }
 
+/// Admin: create or update a contract's label/metadata (#1066).
+#[utoipa::path(
+    post,
+    path = "/v1/admin/contracts/{contract_id}/metadata",
+    tag = "admin",
+    params(
+        ("contract_id" = String, Path, description = "Stellar contract ID"),
+    ),
+    request_body = crate::contract_metadata::UpsertContractMetadata,
+    responses(
+        (status = 200, description = "Metadata upserted", body = crate::contract_metadata::ContractMetadata),
+        (status = 400, description = "Invalid contract_id", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+    )
+)]
+pub async fn upsert_contract_metadata(
+    State(state): State<AppState>,
+    Path(contract_id): Path<String>,
+    Json(input): Json<crate::contract_metadata::UpsertContractMetadata>,
+) -> Result<Json<crate::contract_metadata::ContractMetadata>, AppError> {
+    validate_contract_id(&contract_id)?;
+    let metadata =
+        crate::contract_metadata::upsert_contract_metadata(&state.pool, &contract_id, input)
+            .await?;
+    Ok(Json(metadata))
+}
+
+/// Admin: delete a contract's label/metadata (#1066).
+pub async fn delete_contract_metadata(
+    State(state): State<AppState>,
+    Path(contract_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    validate_contract_id(&contract_id)?;
+    let deleted =
+        crate::contract_metadata::delete_contract_metadata(&state.pool, &contract_id).await?;
+    if !deleted {
+        return Err(AppError::NotFound);
+    }
+    Ok(Json(json!({ "contract_id": contract_id, "status": "deleted" })))
+}
+
+/// Public: read a contract's label/metadata (#1066).
+#[utoipa::path(
+    get,
+    path = "/v1/contracts/{contract_id}/metadata",
+    tag = "contracts",
+    params(
+        ("contract_id" = String, Path, description = "Stellar contract ID"),
+    ),
+    responses(
+        (status = 200, description = "Contract metadata", body = crate::contract_metadata::ContractMetadata),
+        (status = 400, description = "Invalid contract_id", body = ErrorResponse),
+        (status = 404, description = "No metadata registered", body = ErrorResponse),
+    )
+)]
+pub async fn get_contract_metadata(
+    State(state): State<AppState>,
+    Path(contract_id): Path<String>,
+) -> Result<Json<crate::contract_metadata::ContractMetadata>, AppError> {
+    validate_contract_id(&contract_id)?;
+    let metadata =
+        crate::contract_metadata::get_contract_metadata(&state.read_pool, &contract_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+    Ok(Json(metadata))
+}
+
+/// Admin: bulk import contract labels from a JSON array of
+/// `{contract_id, name, description, project_url, source_repo, tags, verified}` (#1066).
+pub async fn bulk_import_contract_metadata(
+    State(state): State<AppState>,
+    Json(entries): Json<Vec<Value>>,
+) -> Result<Json<Value>, AppError> {
+    let mut parsed = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let contract_id = entry
+            .get("contract_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AppError::Validation("missing contract_id".into()))?
+            .to_string();
+        validate_contract_id(&contract_id)?;
+        let input: crate::contract_metadata::UpsertContractMetadata =
+            serde_json::from_value(entry)
+                .map_err(|e| AppError::Validation(format!("invalid metadata entry: {e}")))?;
+        parsed.push((contract_id, input));
+    }
+    let count = crate::contract_metadata::bulk_import(&state.pool, parsed).await?;
+    Ok(Json(json!({ "imported": count })))
+}
+
 /// Anonymize a specific event for GDPR compliance.
 /// Replaces event_data with {"anonymized": true} and hashes tx_hash with SHA-256.
 /// Idempotent: already-anonymized events return 200 without re-processing.
