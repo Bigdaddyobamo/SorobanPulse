@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/brand/logo-horizontal.svg" alt="SorobanPulse" width="360"></p>
+
 # Soroban Pulse
 
 A lightweight Rust backend service that indexes Soroban smart contract events on the Stellar network and exposes them via a REST API.
@@ -52,6 +54,9 @@ See [docs/schema.md](docs/schema.md) for a detailed description of the database 
 - [Contract event schemas](docs/contract-event-schemas.md) documents Stellar contract event patterns, XDR encoding, event data types, examples, and validation rules.
 - [Multi-deployment architecture](docs/multi-deployment-architecture.md) covers geo-redundancy, failover, cross-region sync, multi-cloud deployment, and consistency trade-offs.
 - [Data retention policy](docs/data-retention.md) explains default retention periods, archival, GDPR procedures, deletion workflows, and audit trail retention.
+- [Web dashboard](docs/dashboard.md) — the built-in UI served at `/ui` (`SERVE_DASHBOARD=true`), its caching and Content-Security-Policy.
+- [Embeddable feed widget](packages/feed-widget/README.md) — the `<soroban-pulse-feed>` web component for showing contract activity on your own site, including CORS and API-key guidance.
+- [Design system](docs/design/design-system.md) — design tokens, component specs and usage guidelines. Brand assets are in [docs/assets/brand](docs/assets/brand/README.md).
 
 ## Setup
 
