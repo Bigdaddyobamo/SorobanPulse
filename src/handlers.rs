@@ -790,7 +790,14 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
         "indexer_status": indexer_status,
         "indexer_mode": indexer_mode,
         "indexer_paused": indexer_paused,
+        "rpc_version": crate::rpc_meta::current_version(),
+        "gaps": crate::rpc_meta::list_gaps(&state.pool).await,
     }))
+}
+
+/// GET /v1/admin/indexer/gaps
+pub async fn get_indexer_gaps(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({ "gaps": crate::rpc_meta::list_gaps(&state.pool).await }))
 }
 
 /// Returns aggregate statistics about indexed events.

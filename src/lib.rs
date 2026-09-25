@@ -1,3 +1,4 @@
+pub mod rpc_meta;
 pub mod backfill;
 pub mod abi;
 pub mod advisory_lock;
