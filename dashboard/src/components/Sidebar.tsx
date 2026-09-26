@@ -49,6 +49,11 @@ export function Sidebar({ id, isDrawer, open, onClose, theme, onThemeChange }: S
               </NavLink>
             </li>
             <li>
+              <NavLink to="/events" className="nav-link" onClick={onClose}>
+                {t("nav.events")}
+              </NavLink>
+            </li>
+            <li>
               <NavLink to="/subscriptions" className="nav-link" onClick={onClose}>
                 {t("nav.subscriptions")}
               </NavLink>

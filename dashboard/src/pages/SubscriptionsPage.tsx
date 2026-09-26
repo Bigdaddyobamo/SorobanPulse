@@ -133,7 +133,7 @@ function SubscriptionDetail({ subscription }: { subscription: SubscriptionSummar
       {deliveries === null ? (
         <p>{t("subscriptions.detail.loadingDeliveries")}</p>
       ) : deliveries.length === 0 ? (
-        <p className="empty-state">{t("subscriptions.detail.noDeliveries")}</p>
+        <p className="empty-text">{t("subscriptions.detail.noDeliveries")}</p>
       ) : (
         <ul className="plain-list">
           {deliveries.slice(0, 10).map((d) => (

@@ -20,6 +20,7 @@
     "openMenu": "Abrir menú de navegación",
     "closeMenu": "Cerrar menú de navegación",
     "status": "Estado",
+    "events": "Eventos",
     "subscriptions": "Suscripciones",
     "webhooks": "Webhooks",
     "live": "Flujo en vivo",

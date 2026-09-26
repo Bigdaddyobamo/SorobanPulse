@@ -43,6 +43,12 @@ default `http://app:3000`) and disables buffering so the live SSE stream works.
 - **System status dashboard** (`src/pages/StatusDashboard.tsx`) — polls
   `/api/status` and `/api/metrics` every 15s, rendering health, uptime,
   version, and time-series charts for ingestion throughput and latency.
+- **Event Explorer** (`src/pages/EventExplorerPage.tsx`) — searchable,
+  filterable table of indexed Soroban events with pagination, type badges,
+  and a detail drawer for inspecting event data and ScVal payloads.
+- **Event Detail** (`src/pages/EventDetailPage.tsx`) — full-screen detail
+  view for an individual event, showing summary metadata, ScVal data in
+  tree/table/code views, and raw JSON.
 - **Subscription management** (`src/pages/SubscriptionsPage.tsx`) — lists
   active/paused/failing subscriptions with their contract ID, webhook URL,
   and subscribed event types.
@@ -72,6 +78,8 @@ server (see `dashboard/src/api/client.ts` for the exact shapes):
 | `POST /api/auth/login` | Exchange email/password for a bearer token |
 | `GET /api/status` | Overall system health, uptime, version |
 | `GET /api/metrics?range=<minutes>` | Time-series ingestion/latency metrics |
+| `GET /api/events` | List events with filter, sort, and pagination params |
+| `GET /api/events/:id` | Fetch a single event by ID |
 | `GET /api/subscriptions` | List subscriptions and their status |
 | `GET /api/subscriptions/:id/deliveries` | Webhook delivery history |
 | `GET /api/v1/events/stream` | Live event stream (Server-Sent Events) |
@@ -92,13 +100,19 @@ component used throughout the status dashboard.
 ```
 dashboard/
   src/
-    api/client.ts        # typed fetch wrappers for the dashboard API
+    api/
+      client.ts          # typed fetch wrappers for the dashboard API
+      eventTypes.ts      # TypeScript interfaces for event data
     auth/                # AuthContext + RequireAuth route guard
-    components/          # Sidebar, ResponsiveTable, DetailDrawer, ChartFigure, …
+    components/          # Sidebar, ResponsiveTable, DetailDrawer, ChartFigure,
+                         # EventFilterBar, EventTable, EventDrawer, ScValViewer,
+                         # EmptyState, ErrorState, Skeleton*, TruncatedText, …
     hooks/               # useFocusTrap, useMediaQuery, useTheme
     i18n/                # i18next setup and Intl formatters (useFormat)
     locales/             # en.json, es.json translation catalogues
-    pages/               # LoginPage, StatusDashboard, SubscriptionsPage, WebhooksPage, LiveStreamPage
+    pages/               # LoginPage, StatusDashboard, EventExplorerPage,
+                         # EventDetailPage, SubscriptionsPage, WebhooksPage,
+                         # LiveStreamPage
   tests/                 # Vitest + Testing Library specs
 ```
 

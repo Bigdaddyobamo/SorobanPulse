@@ -37,7 +37,7 @@ export function ResponsiveTable<T>({
   const { t } = useTranslation();
   const captionId = useId();
 
-  if (rows.length === 0) return <p className="empty-state">{emptyText}</p>;
+  if (rows.length === 0) return <p className="empty-text">{emptyText}</p>;
 
   const [first, ...rest] = columns;
   const cardColumns = rest.filter((c) => c.key);

@@ -6,6 +6,8 @@ import { LoginPage } from "./pages/LoginPage";
 import { StatusDashboard } from "./pages/StatusDashboard";
 import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 import { WebhooksPage } from "./pages/WebhooksPage";
+import { EventExplorerPage } from "./pages/EventExplorerPage";
+import { EventDetailPage } from "./pages/EventDetailPage";
 import { LiveStreamPage } from "./pages/LiveStreamPage";
 import { Sidebar } from "./components/Sidebar";
 import { MenuIcon } from "./components/Icons";
@@ -82,6 +84,22 @@ export function App() {
             element={
               <RequireAuth>
                 <StatusDashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/events"
+            element={
+              <RequireAuth>
+                <EventExplorerPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/events/:eventId"
+            element={
+              <RequireAuth>
+                <EventDetailPage />
               </RequireAuth>
             }
           />
