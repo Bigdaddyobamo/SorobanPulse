@@ -160,6 +160,9 @@ pub struct AppState {
         handlers::health_rpc,
         handlers::health_external,
         handlers::email_bounce_webhook,
+        handlers::get_cross_chain_trace,
+        handlers::analyze_causality,
+        handlers::get_feature_flag_status,
         handlers::status,
         handlers::get_events,
         handlers::get_events_feed,
@@ -744,7 +747,7 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/healthz/ready", get(handlers::health_ready))
         .route("/healthz/postgres", get(handlers::health_postgres))
         .route("/healthz/rpc", get(handlers::health_rpc))
-        .route("/healthz/external/:service", get(handlers::health_external))
+        .route("/healthz/external/{service}", get(handlers::health_external))
         .route("/unsubscribe", get(handlers::unsubscribe))
         .route("/metrics", get(handlers::metrics));
 
