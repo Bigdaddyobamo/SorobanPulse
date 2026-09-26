@@ -24,9 +24,12 @@ use query::{
 // CLI definition
 // ---------------------------------------------------------------------------
 
+/// `spulse --version` output: crate version plus the git commit it was built from.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("SPULSE_GIT_SHA"), ")");
+
 /// spulse — query and analyze Soroban Pulse events from the command line.
 #[derive(Parser)]
-#[command(name = "spulse", version, about, long_about = None)]
+#[command(name = "spulse", version = VERSION, about, long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
     /// Soroban Pulse base URL (overrides config)
