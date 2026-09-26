@@ -4,11 +4,13 @@ import { RequestTesterPanel } from './requestTester';
 import { ApiEndpoint } from './types';
 import { setApiKey, setAdminApiKey, clearApiKeys, migrateLegacyApiKeys } from './apiKeyManager';
 import { testWebhook } from './webhookTester';
+import { EventTail } from './eventTail';
 
 export function activate(context: vscode.ExtensionContext): void {
     void migrateLegacyApiKeys(context);
 
     const explorer = new ApiExplorerProvider();
+    const eventTail = new EventTail(context);
 
     // Tree view
     const treeView = vscode.window.createTreeView('sorobanpulse.apiExplorer', {
@@ -53,6 +55,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
         // Issue #963: webhook test interface.
         vscode.commands.registerCommand('sorobanpulse.testWebhook', () => testWebhook()),
+
+        // Issue #1124: live event tail.
+        eventTail,
+        vscode.commands.registerCommand('sorobanpulse.tailEvents', () => eventTail.start()),
+        vscode.commands.registerCommand('sorobanpulse.stopTailEvents', () => eventTail.stop()),
     );
 }
 

@@ -66,3 +66,15 @@ configured `sorobanpulse.baseUrl` and does not require an API key.
 | `sorobanpulse.apiKey` | `""` | Legacy fallback — prefer **Set API Key**. |
 | `sorobanpulse.adminApiKey` | `""` | Legacy fallback — prefer **Set Admin API Key**. |
 | `sorobanpulse.timeoutMs` | `10000` | Request timeout for both the Request Tester and Test Webhook. |
+
+## Tailing contract events
+
+**Soroban Pulse: Tail Contract Events** asks for a contract ID (pre-filled
+when the editor selection contains a `C…` contract strkey) and opens
+`/v1/events/stream?contract_id=<id>` against `sorobanpulse.baseUrl`, sending
+the stored API key as `x-api-key`. Each event is written to the
+**Soroban Pulse Events** output channel as a summary line (event type,
+ledger, tx hash) followed by the pretty-printed JSON payload. Only one tail
+runs at a time; **Soroban Pulse: Stop Tailing Events** closes it. The SSE
+parser and formatting live in `src/eventStream.ts` (unit tested, `npm test`);
+the command wiring is in `src/eventTail.ts`.

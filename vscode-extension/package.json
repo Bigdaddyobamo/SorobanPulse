@@ -79,6 +79,14 @@
         "command": "sorobanpulse.testWebhook",
         "title": "Soroban Pulse: Test Webhook",
         "icon": "$(radio-tower)"
+      },
+      {
+        "command": "sorobanpulse.tailEvents",
+        "title": "Soroban Pulse: Tail Contract Events"
+      },
+      {
+        "command": "sorobanpulse.stopTailEvents",
+        "title": "Soroban Pulse: Stop Tailing Events"
       }
     ],
     "menus": {

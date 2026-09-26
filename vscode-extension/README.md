@@ -22,6 +22,8 @@ Browse, test, and inspect [Soroban Pulse](https://github.com/soroban-pulse/sorob
 | Command | Description |
 |---------|-------------|
 | `Soroban Pulse: Open Settings` | Jump to extension settings |
+| `Soroban Pulse: Tail Contract Events` | Stream a contract's events live into the **Soroban Pulse Events** output channel |
+| `Soroban Pulse: Stop Tailing Events` | Close the running event stream |
 | Refresh (toolbar) | Reload the endpoint list |
 | Copy URL (right-click) | Copy the full endpoint URL to clipboard |
 
