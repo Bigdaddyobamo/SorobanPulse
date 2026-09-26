@@ -7,6 +7,7 @@ Browse, test, and inspect [Soroban Pulse](https://github.com/soroban-pulse/sorob
 - **API Explorer** — sidebar tree of all endpoints grouped by category (Events, Contracts, Subscriptions, Admin, …)
 - **Request Tester** — send real HTTP requests with path params, query params, custom headers, and a body editor
 - **Response Viewer** — formatted JSON body, status badge, duration, and response headers
+- **Contract hover** - hover a `C…` contract ID in Rust, TypeScript, JavaScript or JSON to see its total events, last seen ledger and last event time
 
 ## Getting Started
 
