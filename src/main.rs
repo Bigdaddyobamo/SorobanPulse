@@ -364,6 +364,12 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(subscriptions::run_email_delivery_worker(email_pool));
     }
 
+    // Issue #1057: Auto-fetch contract specs (gated by AUTO_FETCH_CONTRACT_SPECS).
+    tokio::spawn(soroban_pulse::contract_specs::run_worker(pool.clone(), config.stellar_rpc_url.clone()));
+
+    // Issue #1058: Track contract WASM versions and emit contract_upgraded events.
+    tokio::spawn(soroban_pulse::contract_versions::run_worker(pool.clone(), config.stellar_rpc_url.clone(), event_tx.clone()));
+
     // Issue #620: Spawn push notification delivery worker.
     {
         let push_pool = pool.clone();

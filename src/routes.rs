@@ -500,6 +500,8 @@ pub fn create_router_with_tx_and_tenant_map(
         .route("/admin/lua/preview", axum::routing::post(handlers::lua_preview))
         .route("/admin/replay", axum::routing::post(handlers::replay_events))
         .route("/admin/reencrypt", axum::routing::post(handlers::start_reencrypt))
+        .route("/admin/token-transfers/backfill", axum::routing::post(crate::token_events::backfill_token_transfers))
+        .route("/admin/event-addresses/backfill", axum::routing::post(crate::account_events::backfill_event_addresses))
         .route("/admin/contracts/{contract_id}/abi", axum::routing::post(handlers::register_contract_abi).get(handlers::get_contract_abi))
         .route("/admin/events/{id}/anonymize", axum::routing::post(handlers::anonymize_event))
         .route("/admin/indexer/pause", axum::routing::post(handlers::pause_indexer))
@@ -670,6 +672,9 @@ pub fn create_router_with_tx_and_tenant_map(
         // Issue #610: Compression admin endpoints
         .route("/admin/compression/stats", axum::routing::get(handlers::compression_stats))
         .route("/admin/compression/migrate", axum::routing::post(handlers::start_compression_migration))
+        .route("/tokens/{contract_id}/transfers", axum::routing::get(crate::token_events::get_token_transfers))
+        .route("/accounts/{address}/events", axum::routing::get(crate::account_events::get_account_events))
+        .route("/contracts/{contract_id}/versions", axum::routing::get(crate::contract_versions::get_contract_versions))
         // Issue #607: Cached ABI endpoint
         .route("/contracts/{contract_id}/abi/cached", axum::routing::get(handlers::get_contract_abi_cached))
         // Issue #632: Feature flag client-side endpoint
