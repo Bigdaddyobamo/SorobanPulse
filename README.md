@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
+  <img alt="Soroban Pulse: index Soroban contract events, query, stream and react in real time" src="docs/assets/banner-light.svg" width="100%">
+</picture>
+
 # Soroban Pulse
 
 A lightweight Rust backend service that indexes Soroban smart contract events on the Stellar network and exposes them via a REST API.
