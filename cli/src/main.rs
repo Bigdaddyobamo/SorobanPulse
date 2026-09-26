@@ -8,7 +8,7 @@ mod tail;
 mod webhook_test;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use colored::Colorize;
 use std::path::PathBuf;
 
@@ -147,6 +147,12 @@ enum Commands {
         action: SubscriptionAction,
     },
 
+    /// Print a shell completion script (bash, zsh, fish, powershell, elvish)
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
+
     /// Stream live events as NDJSON (one JSON object per line)
     Tail {
         /// Contract ID to stream events for
@@ -250,6 +256,12 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
+    // Completions need no config, so a broken config file cannot break them.
+    if let Commands::Completions { shell } = cli.command {
+        clap_complete::generate(shell, &mut Cli::command(), "spulse", &mut std::io::stdout());
+        return Ok(());
+    }
+
     // Load config and apply CLI overrides
     let mut cfg = Config::load()?;
     if let Some(url) = cli.base_url    { cfg.base_url = url; }
@@ -337,6 +349,8 @@ fn run() -> Result<()> {
             let n = export_events(&client, query, efmt, &output, Some(max))?;
             println!("{} {} record(s) → {}", "Exported".green().bold(), n, output.display());
         }
+
+        Commands::Completions { .. } => unreachable!("handled before loading config"),
 
         Commands::Config { action } => handle_config(action)?,
 
