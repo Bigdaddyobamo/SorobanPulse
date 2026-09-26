@@ -19,6 +19,7 @@ pub mod capacity_planning;
 pub mod compliance_report;
 pub mod compression_config;
 pub mod config;
+pub mod dashboard;
 pub mod config_validation;
 pub mod content_filter;
 pub mod data_integrity;

@@ -87,6 +87,9 @@ toml = "0.8"
 secrecy = "0.5"
 rand = "0.8"
 
+# HTTP middleware / static files (the `fs` feature is enabled by `dashboard`)
+tower-http = { version = "0.5", features = ["trace", "cors", "compression-full", "metrics", "request-id", "limit"] }
+
 # Service mesh integration
 tonic = { version = "0.10", optional = true }
 prost = { version = "0.12", optional = true }
@@ -104,7 +107,11 @@ mockall = "0.12"
 wiremock = "0.6"
 
 [features]
-default = ["classical-crypto"]
+default = ["classical-crypto", "dashboard"]
+
+# Issue #1112: serve the built web dashboard at /ui (runtime opt-in: SERVE_DASHBOARD=true).
+# Build with --no-default-features --features classical-crypto to drop it.
+dashboard = ["tower-http/fs"]
 
 # Cryptography features
 classical-crypto = []
