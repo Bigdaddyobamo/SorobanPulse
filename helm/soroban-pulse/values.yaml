@@ -119,3 +119,202 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 topologySpreadConstraints: []
+
+# ── Split-mode: separate API and Indexer Deployments ──────────────────────────
+# When splitMode is false (default) a single Deployment runs ROLE=all,
+# preserving full backward compatibility with existing installations.
+#
+# Set splitMode: true to run the API and the indexer as separate Deployments so
+# they can scale independently.  The indexer Deployment is NOT managed by an HPA
+# — it runs a fixed number of replicas (1 active + optional standby) and the
+# advisory lock ensures exactly one pod indexes at a time.
+#
+# Migration path:
+#   helm upgrade release ./helm/soroban-pulse --set splitMode=true
+#
+# Rollback path:
+#   helm upgrade release ./helm/soroban-pulse --set splitMode=false
+#
+splitMode: false
+
+# ── Per-component overrides (only used when splitMode: true) ──────────────────
+api:
+  # Number of API replicas when HPA is disabled.
+  replicaCount: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Resource overrides for api pods. Falls back to top-level `resources` when empty.
+  resources: {}
+
+  # Extra env vars injected only into api pods.
+  extraEnv: []
+
+  # Scheduling overrides. Fall back to top-level values when empty.
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  podLabels: {}
+  strategy: {}
+
+indexer:
+  # 1 = exactly one active indexer.
+  # 2 = one active + one warm standby (recommended for HA: standby auto-promotes
+  #     within INDEXER_LOCK_RETRY_SECS when the leader crashes).
+  replicaCount: 1
+
+  podDisruptionBudget:
+    enabled: true
+    # Keep at least 1 indexer pod alive during node drain so the advisory lock
+    # is never vacated for longer than one INDEXER_LOCK_RETRY_SECS window.
+    minAvailable: 1
+
+  # Readiness probe overrides for the indexer. The indexer's ready check
+  # verifies the advisory lock is held, so a longer initialDelaySeconds and
+  # more generous failureThreshold are appropriate.
+  readinessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    failureThreshold: 6
+
+  # Resource overrides for indexer pods. Falls back to top-level `resources`.
+  resources: {}
+
+  # Extra env vars injected only into indexer pods.
+  extraEnv: []
+
+  # Scheduling overrides. Fall back to top-level values when empty.
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  podLabels: {}
+  strategy: {}
+
+# ── Prometheus Operator: ServiceMonitor ──────────────────────────────────────
+# Requires the Prometheus Operator (kube-prometheus-stack or standalone) to be
+# installed in the cluster.  When enabled, a ServiceMonitor is created so
+# Prometheus automatically discovers and scrapes the /metrics endpoint.
+serviceMonitor:
+  # Set to true to create the ServiceMonitor resource.
+  enabled: false
+  # Override the namespace the ServiceMonitor is created in.
+  # Defaults to the release namespace when left empty.
+  namespace: ""
+  # HTTP path Prometheus scrapes for metrics.
+  path: /metrics
+  # How often Prometheus scrapes the target.
+  interval: 30s
+  # Per-scrape timeout (must be <= interval).
+  scrapeTimeout: 10s
+  # Extra labels to add to the ServiceMonitor metadata.
+  # Use this to match the Prometheus Operator's serviceMonitorSelector, e.g.:
+  #   additionalLabels:
+  #     release: kube-prometheus-stack
+  additionalLabels: {}
+  # Prometheus relabeling rules applied before ingestion.
+  relabelings: []
+  # Metric relabeling rules applied after scraping.
+  metricRelabelings: []
+
+# ── Prometheus Operator: PrometheusRule ──────────────────────────────────────
+# Creates a PrometheusRule containing all alerting rules from docs/alerts.yml.
+# Requires the Prometheus Operator CRD to be present.
+prometheusRule:
+  # Set to true to create the PrometheusRule resource.
+  enabled: false
+  # Override the namespace the PrometheusRule is created in.
+  # Defaults to the release namespace when left empty.
+  namespace: ""
+  # Extra labels to add to the PrometheusRule metadata.
+  # Use this to match the Prometheus Operator's ruleSelector, e.g.:
+  #   additionalLabels:
+  #     release: kube-prometheus-stack
+  additionalLabels: {}
+
+# ── Kubernetes NetworkPolicy ──────────────────────────────────────────────────
+# When enabled, a NetworkPolicy is applied to the pods so that:
+#   Ingress: only the ingress controller and Prometheus may reach the service port.
+#   Egress:  pods may only connect to PostgreSQL, the Stellar RPC endpoint, and DNS.
+# Requires a CNI plugin that enforces NetworkPolicies (e.g. Calico, Cilium, Weave).
+networkPolicy:
+  # Set to true to create the NetworkPolicy resource.
+  enabled: false
+
+  # Selectors for the ingress controller pods/namespace.
+  # Adjust to match your cluster's ingress controller.
+  # Example for ingress-nginx installed via the official chart:
+  #   ingressController:
+  #     namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: ingress-nginx
+  #     podSelector:
+  #       matchLabels:
+  #         app.kubernetes.io/name: ingress-nginx
+  ingressController:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: ingress-nginx
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: ingress-nginx
+
+  # Selectors for Prometheus pods/namespace.
+  # Example for kube-prometheus-stack:
+  #   prometheus:
+  #     namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: monitoring
+  #     podSelector:
+  #       matchLabels:
+  #         app.kubernetes.io/name: prometheus
+  prometheus:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: monitoring
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: prometheus
+
+  egress:
+    # TCP port used to reach PostgreSQL (default: 5432).
+    postgresPort: 5432
+    # TCP port used to reach the Stellar Soroban RPC endpoint over HTTPS (default: 443).
+    rpcPort: 443
+    # Additional egress ports to allow (e.g. SMTP, external APIs).
+    # Each entry must have a port field and an optional protocol (defaults to TCP).
+    # extraPorts:
+    #   - port: 587
+    #     protocol: TCP
+    extraPorts: []
+
+# ── Grafana dashboard ConfigMap ───────────────────────────────────────────────
+# Creates a ConfigMap containing the pre-built Grafana dashboard JSON.
+# When the Grafana sidecar (grafana-sc-dashboard) is running it will
+# automatically load any ConfigMap labelled with the configured sidecar label.
+grafana:
+  dashboardConfigMap:
+    # Set to true to create the ConfigMap.
+    enabled: false
+    # Namespace to create the ConfigMap in.
+    # Defaults to the release namespace when left empty.
+    namespace: ""
+    # Label key/value that the Grafana sidecar watches.
+    # Must match grafana.sidecar.dashboards.label in your Grafana Helm values.
+    sidecarLabel: grafana_dashboard
+    sidecarLabelValue: "1"
+    # Extra labels added to the ConfigMap metadata.
+    additionalLabels: {}
+    # Annotations added to the ConfigMap metadata.
+    # Use grafana_dashboard_folder to place the dashboard in a specific folder:
+    #   annotations:
+    #     grafana_dashboard_folder: SorobanPulse
+    annotations: {}
