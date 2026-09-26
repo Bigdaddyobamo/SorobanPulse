@@ -28,6 +28,30 @@ export interface WebhookDelivery {
   deliveredAt: string;
 }
 
+export interface ApiErrorDetail {
+  status: number;
+  statusText: string;
+  requestId: string | null;
+  retryAfter: number | null;
+  message: string;
+}
+
+export class ApiError extends Error {
+  public readonly status: number;
+  public readonly statusText: string;
+  public readonly requestId: string | null;
+  public readonly retryAfter: number | null;
+
+  constructor(detail: ApiErrorDetail) {
+    super(detail.message);
+    this.name = "ApiError";
+    this.status = detail.status;
+    this.statusText = detail.statusText;
+    this.requestId = detail.requestId;
+    this.retryAfter = detail.retryAfter;
+  }
+}
+
 function authHeaders(): Record<string, string> {
   const raw = localStorage.getItem("sorobanpulse.dashboard.auth");
   const token = raw ? JSON.parse(raw).token : null;
@@ -36,7 +60,19 @@ function authHeaders(): Record<string, string> {
 
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(`/api${path}`, { headers: authHeaders() });
-  if (!response.ok) throw new Error(`request to ${path} failed: ${response.status}`);
+  if (!response.ok) {
+    const requestId = response.headers.get("x-request-id");
+    const retryAfter = response.headers.get("retry-after");
+    const retryAfterSec = retryAfter ? Number(retryAfter) : null;
+    const body = await response.text();
+    throw new ApiError({
+      status: response.status,
+      statusText: response.statusText,
+      requestId,
+      retryAfter: retryAfterSec,
+      message: body || `request to ${path} failed: ${response.status}`,
+    });
+  }
   return response.json();
 }
 

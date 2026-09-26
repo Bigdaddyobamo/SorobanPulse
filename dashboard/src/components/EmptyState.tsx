@@ -1,22 +1,27 @@
+import { IconEmpty } from "./Icons";
+
 interface EmptyStateProps {
-  message?: string;
+  icon?: React.ReactNode;
+  title: string;
+  description: string;
   actionLabel?: string;
   onAction?: () => void;
 }
 
 export function EmptyState({
-  message = "No events found",
+  icon,
+  title,
+  description,
   actionLabel,
   onAction,
 }: EmptyStateProps) {
   return (
     <div className="empty-state">
-      <div className="empty-state-icon" aria-hidden="true">
-        🔍
-      </div>
-      <p className="empty-state-message">{message}</p>
+      <div className="empty-state-icon">{icon ?? <IconEmpty />}</div>
+      <h3 className="empty-state-title">{title}</h3>
+      <p className="empty-state-description">{description}</p>
       {actionLabel && onAction && (
-        <button className="btn btn-secondary" onClick={onAction}>
+        <button className="btn btn-primary" onClick={onAction}>
           {actionLabel}
         </button>
       )}
