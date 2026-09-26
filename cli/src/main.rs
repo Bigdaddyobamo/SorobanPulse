@@ -4,6 +4,7 @@ mod exporter;
 mod formatter;
 mod query;
 mod subscription;
+mod tail;
 mod webhook_test;
 
 use anyhow::Result;
@@ -144,6 +145,16 @@ enum Commands {
     Subscriptions {
         #[command(subcommand)]
         action: SubscriptionAction,
+    },
+
+    /// Stream live events as NDJSON (one JSON object per line)
+    Tail {
+        /// Contract ID to stream events for
+        #[arg(long, short = 'c')]
+        contract: String,
+        /// Filter: event type (contract, diagnostic, system)
+        #[arg(long = "type", short = 't')]
+        event_type: Option<String>,
     },
 
     /// Send a synthetic test event to a webhook URL and report the result
@@ -330,6 +341,11 @@ fn run() -> Result<()> {
         Commands::Config { action } => handle_config(action)?,
 
         Commands::Subscriptions { action } => handle_subscription(&cfg, action)?,
+
+        Commands::Tail { contract, event_type } => {
+            let client = ApiClient::new(&cfg)?;
+            tail::run(&client, &contract, event_type.as_deref())?;
+        }
 
         Commands::WebhookTest { url, contract, timeout } => {
             let result = webhook_test::send(&url, &contract, timeout)?;
