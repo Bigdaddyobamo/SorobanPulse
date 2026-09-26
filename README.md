@@ -170,6 +170,14 @@ make security-tests
 make security
 ```
 
+### Web UI
+
+A React front end with an event explorer, global search, status page, admin console and light/dark themes lives in [`frontend/`](frontend/README.md):
+
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:5173
+```
+
 ## API
 
 All canonical routes are versioned under `/v1/`. The unversioned paths (`/events`, etc.) remain as deprecated aliases and return a `Deprecation: true` response header.
