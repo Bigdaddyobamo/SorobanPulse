@@ -13,8 +13,13 @@
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/soroban-pulse/soroban-pulse"
+    "url": "https://github.com/Soroban-Pulse/SorobanPulse.git",
+    "directory": "vscode-extension"
   },
+  "bugs": {
+    "url": "https://github.com/Soroban-Pulse/SorobanPulse/issues"
+  },
+  "homepage": "https://github.com/Soroban-Pulse/SorobanPulse/tree/main/vscode-extension#readme",
   "activationEvents": [
     "onView:sorobanpulse.apiExplorer"
   ],
