@@ -1,3 +1,6 @@
+pub mod resources;
+pub mod rpc_meta;
+pub mod backfill;
 pub mod abi;
 pub mod advisory_lock;
 pub mod aggregation;
