@@ -36,6 +36,11 @@ npm run package        # builds soroban-pulse-explorer-x.x.x.vsix
 npm run publish        # publishes to VS Code Marketplace (requires vsce login)
 ```
 
+Releases are automated: bump `version` in `package.json`, add the entry to
+`CHANGELOG.md`, then push a matching `vscode-extension-vX.Y.Z` tag. The
+`VS Code Extension Release` workflow packages the `.vsix` and publishes it to
+the VS Code Marketplace (`VSCE_PAT` secret) and Open VSX (`OVSX_PAT` secret).
+
 ## Requirements
 
 - VS Code `^1.85.0`
