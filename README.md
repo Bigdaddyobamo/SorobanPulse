@@ -1,5 +1,7 @@
 # Soroban Pulse
 
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/divinemike019/SorobanPulse/badge)](https://securityscorecards.dev/viewer/?uri=github.com/divinemike019/SorobanPulse)
+
 A lightweight Rust backend service that indexes Soroban smart contract events on the Stellar network and exposes them via a REST API.
 
 ## Tech Stack
