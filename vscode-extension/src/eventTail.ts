@@ -6,7 +6,7 @@ import { getApiKey } from './apiKeyManager';
 import { findContractId, formatEvent, isContractId, SseParser } from './eventStream';
 
 // ---------------------------------------------------------------------------
-// "Tail Contract Events" — Issue #1124
+// "Tail Contract Events" (Issue #1124)
 //
 // Streams `/v1/events/stream?contract_id=` into an Output channel. One tail
 // runs at a time; starting another (or "Stop Tailing Events") ends it.

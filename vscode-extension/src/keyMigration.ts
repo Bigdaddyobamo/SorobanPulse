@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Legacy API key migration — Issue #1123
+// Legacy API key migration (Issue #1123)
 //
 // Keys set before SecretStorage existed live in plaintext settings.json
 // (user, workspace or folder scope). On activation we move each one into

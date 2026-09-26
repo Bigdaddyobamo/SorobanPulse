@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Live event tail helpers — Issue #1124
+// Live event tail helpers (Issue #1124)
 //
 // Pure, `vscode`-free pieces of the "Tail Contract Events" command: an
 // incremental Server-Sent Events parser for `/v1/events/stream`, contract ID
