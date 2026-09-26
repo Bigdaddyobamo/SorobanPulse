@@ -32,6 +32,26 @@ use subtle::ConstantTimeEq;
 #[derive(Clone, Debug)]
 pub struct TenantId(pub String);
 
+/// The authenticated principal (owner identity) for the current request.
+///
+/// Injected by [`auth_middleware`] on every non-public request: a stable,
+/// non-reversible identifier derived from the API key, or `"anonymous"` when
+/// authentication is disabled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Principal(pub String);
+
+impl Principal {
+    pub const ANONYMOUS: &'static str = "anonymous";
+
+    pub fn from_api_key(key: &str) -> Self {
+        Principal(format!("key:{}", &hash_api_key(key)[..16]))
+    }
+
+    pub fn anonymous() -> Self {
+        Principal(Self::ANONYMOUS.to_string())
+    }
+}
+
 /// Shared state for the global authentication middleware layer.
 #[derive(Clone)]
 pub struct AuthState {
@@ -127,6 +147,9 @@ pub async fn auth_middleware(
             ));
         }
 
+        req.extensions_mut()
+            .insert(Principal::from_api_key(provided_key.unwrap_or("")));
+
         // Multi-tenant: resolve and inject tenant_id.  Admin keys are global
         // and skip tenant resolution.
         if state.multi_tenant && !is_admin {
@@ -146,6 +169,8 @@ pub async fn auth_middleware(
                 }
             }
         }
+    } else {
+        req.extensions_mut().insert(Principal::anonymous());
     }
 
     Ok(next.run(req).await)
@@ -323,5 +348,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+}
+
+#[cfg(test)]
+mod principal_tests {
+    use super::Principal;
+
+    #[test]
+    fn principals_differ_per_key_and_are_stable() {
+        assert_ne!(Principal::from_api_key("a"), Principal::from_api_key("b"));
+        assert_eq!(Principal::from_api_key("a"), Principal::from_api_key("a"));
+        assert_eq!(Principal::anonymous().0, "anonymous");
     }
 }
