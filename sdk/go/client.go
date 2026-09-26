@@ -103,7 +103,7 @@ func (c *Client) GetEvents(ctx context.Context, opts *GetEventsOptions) (*Events
 	}
 
 	var result EventsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := decodeJSON(resp, &result); err != nil {
 		return nil, err
 	}
 
@@ -128,7 +128,7 @@ func (c *Client) GetEventsByContract(ctx context.Context, contractID string, opt
 	}
 
 	var result EventsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := decodeJSON(resp, &result); err != nil {
 		return nil, err
 	}
 
@@ -149,7 +149,7 @@ func (c *Client) GetEventsByTransactionHash(ctx context.Context, txHash string) 
 	}
 
 	var result EventsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := decodeJSON(resp, &result); err != nil {
 		return nil, err
 	}
 
@@ -218,11 +218,32 @@ func (c *Client) GetHealth(ctx context.Context) (*HealthResponse, error) {
 	}
 
 	var result HealthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := decodeJSON(resp, &result); err != nil {
 		return nil, err
 	}
 
 	return &result, nil
+}
+
+// APIError is returned when the API answers with a non-2xx status.
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("soroban pulse API error: HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// decodeJSON closes resp.Body and decodes it into out, or returns an
+// *APIError for non-2xx responses.
+func decodeJSON(resp *http.Response, out interface{}) error {
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
 }
 
 // doRequest performs an HTTP request
