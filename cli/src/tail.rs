@@ -60,7 +60,11 @@ impl SseParser {
         }
         let message = (!self.data.is_empty()).then(|| SseMessage {
             id: self.id.clone(),
-            event: if self.event.is_empty() { "message".into() } else { self.event.clone() },
+            event: if self.event.is_empty() {
+                "message".into()
+            } else {
+                self.event.clone()
+            },
             data: self.data.join("\n"),
         });
         self.data.clear();
@@ -80,11 +84,19 @@ pub fn pipe_ndjson<R: Read, W: Write>(body: R, out: &mut W) -> Result<u64> {
     let mut written = 0;
     loop {
         line.clear();
-        if reader.read_line(&mut line).context("reading event stream")? == 0 {
+        if reader
+            .read_line(&mut line)
+            .context("reading event stream")?
+            == 0
+        {
             return Ok(written);
         }
-        let Some(message) = parser.push_line(&line) else { continue };
-        let Ok(event) = serde_json::from_str::<Value>(&message.data) else { continue };
+        let Some(message) = parser.push_line(&line) else {
+            continue;
+        };
+        let Ok(event) = serde_json::from_str::<Value>(&message.data) else {
+            continue;
+        };
 
         let result = writeln!(out, "{event}").and_then(|_| out.flush());
         match result {
@@ -110,7 +122,10 @@ mod tests {
 
     fn parse(input: &str) -> (Vec<SseMessage>, SseParser) {
         let mut parser = SseParser::default();
-        let messages = input.split_inclusive('\n').filter_map(|l| parser.push_line(l)).collect();
+        let messages = input
+            .split_inclusive('\n')
+            .filter_map(|l| parser.push_line(l))
+            .collect();
         (messages, parser)
     }
 
@@ -120,8 +135,16 @@ mod tests {
         assert_eq!(
             messages,
             vec![
-                SseMessage { id: Some("1".into()), event: "message".into(), data: "{\"a\":1}".into() },
-                SseMessage { id: None, event: "lag".into(), data: "x\ny".into() },
+                SseMessage {
+                    id: Some("1".into()),
+                    event: "message".into(),
+                    data: "{\"a\":1}".into()
+                },
+                SseMessage {
+                    id: None,
+                    event: "lag".into(),
+                    data: "x\ny".into()
+                },
             ]
         );
         assert_eq!(parser.last_event_id.as_deref(), Some("9"));
@@ -156,6 +179,9 @@ mod tests {
 
     #[test]
     fn closed_stdout_ends_quietly() {
-        assert_eq!(pipe_ndjson("data: {}\n\n".as_bytes(), &mut ClosedPipe).unwrap(), 0);
+        assert_eq!(
+            pipe_ndjson("data: {}\n\n".as_bytes(), &mut ClosedPipe).unwrap(),
+            0
+        );
     }
 }
