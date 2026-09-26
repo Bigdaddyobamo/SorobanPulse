@@ -68,6 +68,10 @@ Where:
 
 **Important:** Each migration must have a **unique timestamp prefix**. SQLx applies migrations in lexicographic order by filename. Duplicate timestamps cause non-deterministic apply order and can lead to schema inconsistencies between fresh and incrementally-migrated databases.
 
+### Upgrading deployed databases
+
+Colliding versions were renumbered (see `scripts/remap-migration-versions.sql`). `_sqlx_migrations` stores version numbers, so run that script once against any already-migrated database before deploying. Fresh databases need nothing.
+
 ### Checking for Duplicates
 
 Before committing a new migration, run:
