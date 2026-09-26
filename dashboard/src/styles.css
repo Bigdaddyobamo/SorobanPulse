@@ -1,6 +1,56 @@
 :root {
   color-scheme: light dark;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Design tokens */
+  --color-bg: Canvas;
+  --color-surface: CanvasText;
+  --color-border: rgba(128, 128, 128, 0.25);
+  --color-text: CanvasText;
+  --color-text-secondary: rgba(128, 128, 128, 0.8);
+  --color-accent: #5b8def;
+  --color-error: #d64545;
+  --color-success: #1f9d55;
+  --color-warning: #e6a817;
+  --color-code-bg: rgba(128, 128, 128, 0.1);
+  --font-mono: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* Spacing scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+
+  /* Border radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 1rem;
+  --radius-full: 999px;
+}
+
+/* Light theme overrides */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg: #ffffff;
+    --color-surface: #f8f9fa;
+    --color-border: #e0e0e0;
+    --color-text: #1a1a1a;
+    --color-text-secondary: #666666;
+    --color-code-bg: #f0f0f0;
+  }
+}
+
+/* Dark theme overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1a1a2e;
+    --color-surface: #2a2a4a;
+    --color-border: #4a4a6a;
+    --color-text: #e0e0e0;
+    --color-text-secondary: #a0a0b0;
+    --color-code-bg: #1e1e2e;
+  }
 }
 
 .app-shell {
