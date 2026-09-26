@@ -2,10 +2,12 @@ import * as vscode from 'vscode';
 import { ApiExplorerProvider, EndpointItem } from './apiExplorer';
 import { RequestTesterPanel } from './requestTester';
 import { ApiEndpoint } from './types';
-import { setApiKey, setAdminApiKey, clearApiKeys } from './apiKeyManager';
+import { setApiKey, setAdminApiKey, clearApiKeys, migrateLegacyApiKeys } from './apiKeyManager';
 import { testWebhook } from './webhookTester';
 
 export function activate(context: vscode.ExtensionContext): void {
+    void migrateLegacyApiKeys(context);
+
     const explorer = new ApiExplorerProvider();
 
     // Tree view

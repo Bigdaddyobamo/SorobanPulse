@@ -117,7 +117,7 @@
         "sorobanpulse.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key sent as the x-api-key header. Prefer 'Soroban Pulse: Set API Key' instead, which stores it in SecretStorage rather than this plaintext setting; this is kept only as a fallback for existing configs."
+          "description": "API key sent as the x-api-key header. Deprecated: use 'Soroban Pulse: Set API Key', which stores it in SecretStorage. A value set here is moved into SecretStorage and removed from settings the next time the extension activates."
         },
         "sorobanpulse.adminApiKey": {
           "type": "string",
@@ -137,6 +137,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
+    "test": "npm run compile && node --test \"out/test/*.test.js\"",
     "package": "vsce package",
     "publish": "vsce publish"
   },

@@ -13,8 +13,7 @@ Browse, test, and inspect [Soroban Pulse](https://github.com/soroban-pulse/sorob
 1. Install the extension.
 2. Open **Settings** (`Ctrl+,`) and search for `sorobanpulse`:
    - Set `sorobanpulse.baseUrl` to your running instance (default: `http://localhost:3000`)
-   - Set `sorobanpulse.apiKey` for authenticated endpoints
-   - Optionally set `sorobanpulse.adminApiKey` for `/admin/*` endpoints
+   - Run **Soroban Pulse: Set API Key** (and optionally **Set Admin API Key** for `/admin/*`) from the Command Palette. Keys are kept in VS Code's SecretStorage, never in `settings.json`; any key found in the old `sorobanpulse.apiKey` / `sorobanpulse.adminApiKey` settings is moved there automatically on activation.
 3. Click the **⚡** icon in the activity bar to open the API Explorer.
 4. Click any endpoint to open it in the Request Tester — fill in parameters and hit **Send**.
 
