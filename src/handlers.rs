@@ -575,8 +575,75 @@ pub async fn health_live() -> (StatusCode, Json<Value>) {
     )
 )]
 pub async fn health_ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
-    let (status, body) = build_health_response(&state).await;
-    (status, Json(body))
+    use crate::config::Role;
+
+    match state.config.role {
+        // ── ROLE=indexer ─────────────────────────────────────────────────────
+        // Ready when the advisory lock is held (i.e. this pod is the active
+        // indexer leader).  A standby pod that lost the lock is intentionally
+        // not ready so that rolling updates don't stall on the standby, and
+        // Kubernetes won't route traffic to it while it waits for promotion.
+        Role::Indexer => {
+            let is_leader = state
+                .indexer_state
+                .is_active_indexer
+                .load(std::sync::atomic::Ordering::SeqCst);
+
+            if is_leader {
+                (
+                    StatusCode::OK,
+                    Json(json!({ "status": "ok", "role": "indexer", "lock": "held" })),
+                )
+            } else {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "status": "degraded",
+                        "role": "indexer",
+                        "lock": "standby",
+                        "reason": "advisory lock not held; this replica is on standby"
+                    })),
+                )
+            }
+        }
+
+        // ── ROLE=api ──────────────────────────────────────────────────────────
+        // Ready when the database is reachable.  No indexer stall check —
+        // api pods never run the indexer, so an indexer stall on another pod
+        // should not make every api pod unready.
+        Role::Api => {
+            let timeout = Duration::from_millis(state.health_check_timeout_ms);
+            let db_check =
+                tokio::time::timeout(timeout, sqlx::query("SELECT 1").fetch_one(&state.pool))
+                    .await;
+
+            let (db_ok, db_status) = match db_check {
+                Ok(Ok(_)) => (true, "ok"),
+                Ok(Err(sqlx::Error::PoolTimedOut)) => (false, "pool_exhausted"),
+                Ok(Err(_)) => (false, "unreachable"),
+                Err(_) => (false, "timeout"),
+            };
+
+            if db_ok {
+                (
+                    StatusCode::OK,
+                    Json(json!({ "status": "ok", "role": "api", "db": "ok" })),
+                )
+            } else {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({ "status": "degraded", "role": "api", "db": db_status })),
+                )
+            }
+        }
+
+        // ── ROLE=all (default) ────────────────────────────────────────────────
+        // Backward-compatible: DB reachable AND indexer not stalled.
+        Role::All => {
+            let (status, body) = build_health_response(&state).await;
+            (status, Json(body))
+        }
+    }
 }
 
 /// Query parameters for the email unsubscribe endpoint (Issue #483).
