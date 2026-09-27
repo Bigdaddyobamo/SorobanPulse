@@ -338,6 +338,26 @@ fn rows_to_json(
     enc_key_old: Option<&[u8; 32]>,
     compact: bool,
 ) -> Result<Vec<Value>, AppError> {
+    rows_to_json_with_format(
+        rows,
+        columns,
+        enc_key,
+        enc_key_old,
+        compact,
+        crate::scval_format::ScValFormat::Json,
+    )
+}
+
+/// Like `rows_to_json`, but renders `event_data` (Issue #1064: `value` and
+/// `topic` ScVals) in the requested `format` (`native`, `json` or `xdr`).
+fn rows_to_json_with_format(
+    rows: &[sqlx::postgres::PgRow],
+    columns: &[&str],
+    enc_key: Option<&[u8; 32]>,
+    enc_key_old: Option<&[u8; 32]>,
+    compact: bool,
+    format: crate::scval_format::ScValFormat,
+) -> Result<Vec<Value>, AppError> {
     let mut events = Vec::with_capacity(rows.len());
     for row in rows {
         let mut event = serde_json::Map::new();
@@ -367,10 +387,11 @@ fn rows_to_json(
                 "event_data" => {
                     let raw: Value = row.try_get::<Value, _>(col)?;
                     let decrypted = decrypt_event_data(&raw, enc_key, enc_key_old);
+                    let rendered = crate::scval_format::render_event_data(&decrypted, format);
                     if compact {
-                        event.insert(col.to_string(), compact_event_data(&decrypted)?);
+                        event.insert(col.to_string(), compact_event_data(&rendered)?);
                     } else {
-                        event.insert(col.to_string(), decrypted);
+                        event.insert(col.to_string(), rendered);
                     }
                 }
                 "event_data_normalized" => {
@@ -1276,7 +1297,9 @@ pub async fn stream_events(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<Value>)> {
     let tenant_id = extract_tenant_id(&extensions).map(|s| s.to_owned());
     let client_ip = extract_client_ip(&headers);
-    stream_events_internal(State(state), params.contract_id, params.fields, params.event_type, headers, tenant_id, client_ip)
+    let scval_format = crate::scval_format::parse_format(params.format.as_deref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e, "code": "VALIDATION_ERROR" }))))?;
+    stream_events_internal(State(state), params.contract_id, params.fields, params.event_type, headers, tenant_id, client_ip, scval_format)
         .await
 }
 
@@ -1310,7 +1333,9 @@ pub async fn stream_events_by_contract(
     })?;
     let tenant_id = extract_tenant_id(&extensions).map(|s| s.to_owned());
     let client_ip = extract_client_ip(&headers);
-    stream_events_internal(State(state), Some(contract_id), params.fields, params.event_type, headers, tenant_id, client_ip)
+    let scval_format = crate::scval_format::parse_format(params.format.as_deref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e, "code": "VALIDATION_ERROR" }))))?;
+    stream_events_internal(State(state), Some(contract_id), params.fields, params.event_type, headers, tenant_id, client_ip, scval_format)
         .await
 }
 
@@ -1706,6 +1731,7 @@ async fn stream_events_internal(
     headers: axum::http::HeaderMap,
     tenant_id: Option<String>,
     client_ip: String,
+    scval_format: crate::scval_format::ScValFormat,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<Value>)> {
     // Check if we've reached the max SSE connections limit
     let current_connections = state
@@ -1893,6 +1919,7 @@ async fn stream_events_internal(
     // DB fallback replay stream: full Event records from DB.
     let db_replay_stream = stream::iter(db_replay.into_iter().filter_map(move |mut ev| {
         ev.event_data = decrypt_event_data(&ev.event_data, enc_key.as_ref(), enc_key_old.as_ref());
+        ev.event_data = crate::scval_format::render_event_data(&ev.event_data, scval_format);
         let data = match &field_columns_replay {
             Some(cols) => serde_json::to_string(&filter_fields(
                 &ev,
@@ -2444,6 +2471,13 @@ pub async fn get_events(
             bind_idx += 3;
         }
         maybe_add_tenant_condition(&mut conditions, &mut bind_idx, tenant_id);
+        // Issue #1063: filter to one network when indexing multiple
+        // networks concurrently from this deployment. Omitted returns
+        // events from every configured network.
+        if params.network.is_some() {
+            conditions.push(format!("chain_id = ${bind_idx}"));
+            bind_idx += 1;
+        }
 
         let where_clause = format!("WHERE {}", conditions.join(" AND "));
 
@@ -2491,6 +2525,13 @@ pub async fn get_events(
 
         let order_clause = if params.rank_by_relevance.unwrap_or(false) {
             "relevance_score DESC, id DESC".to_string()
+        } else if sort_col == "ledger" {
+            // Issue #1065: within a ledger, order deterministically by the
+            // decoded TOID fields before falling back to insertion id.
+            format!(
+                "ledger {dir}, tx_index {dir} NULLS LAST, op_index {dir} NULLS LAST, event_index {dir} NULLS LAST, id {dir}",
+                dir = dir
+            )
         } else {
             format!("{col} {dir}, id {dir}", col = sort_col, dir = dir)
         };
@@ -2595,6 +2636,9 @@ pub async fn get_events(
         if let Some(tid) = tenant_id {
             q = q.bind(tid);
         }
+        if let Some(ref network) = params.network {
+            q = q.bind(network);
+        }
         q = q.bind(limit);
 
         let _db_span = info_span!("db_query", query_type = "get_events_cursor").entered();
@@ -2634,12 +2678,15 @@ pub async fn get_events(
             None
         };
 
-        let events = rows_to_json(
+        let scval_format = crate::scval_format::parse_format(params.format.as_deref())
+            .map_err(AppError::Validation)?;
+        let events = rows_to_json_with_format(
             &rows,
             &columns,
             state.encryption_key.as_ref(),
             state.encryption_key_old.as_ref(),
             params.compact.unwrap_or(false),
+            scval_format,
         )?;
 
         // Build ETag from last row's id + created_at
@@ -3199,7 +3246,12 @@ pub async fn get_events_feed(
             query.push_bind(tid);
         }
     }
-    query.push(" ORDER BY ledger DESC, id DESC LIMIT ");
+    // Issue #1065: order deterministically within a ledger using the
+    // decoded TOID fields before falling back to insertion id, so
+    // re-indexing and replicas agree on order regardless of insert order.
+    query.push(
+        " ORDER BY ledger DESC, tx_index DESC NULLS LAST, op_index DESC NULLS LAST, event_index DESC NULLS LAST, id DESC LIMIT ",
+    );
     query.push_bind(limit);
 
     let rows = query.build().fetch_all(&state.read_pool).await?;
@@ -4466,6 +4518,96 @@ pub async fn get_contract_abi(
     let created_at: DateTime<Utc> = row.try_get("created_at")?;
     let updated_at: DateTime<Utc> = row.try_get("updated_at")?;
     Ok(Json(json!({ "contract_id": contract_id, "abi": abi, "created_at": created_at, "updated_at": updated_at })))
+}
+
+/// Admin: create or update a contract's label/metadata (#1066).
+#[utoipa::path(
+    post,
+    path = "/v1/admin/contracts/{contract_id}/metadata",
+    tag = "admin",
+    params(
+        ("contract_id" = String, Path, description = "Stellar contract ID"),
+    ),
+    request_body = crate::contract_metadata::UpsertContractMetadata,
+    responses(
+        (status = 200, description = "Metadata upserted", body = crate::contract_metadata::ContractMetadata),
+        (status = 400, description = "Invalid contract_id", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+    )
+)]
+pub async fn upsert_contract_metadata(
+    State(state): State<AppState>,
+    Path(contract_id): Path<String>,
+    Json(input): Json<crate::contract_metadata::UpsertContractMetadata>,
+) -> Result<Json<crate::contract_metadata::ContractMetadata>, AppError> {
+    validate_contract_id(&contract_id)?;
+    let metadata =
+        crate::contract_metadata::upsert_contract_metadata(&state.pool, &contract_id, input)
+            .await?;
+    Ok(Json(metadata))
+}
+
+/// Admin: delete a contract's label/metadata (#1066).
+pub async fn delete_contract_metadata(
+    State(state): State<AppState>,
+    Path(contract_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    validate_contract_id(&contract_id)?;
+    let deleted =
+        crate::contract_metadata::delete_contract_metadata(&state.pool, &contract_id).await?;
+    if !deleted {
+        return Err(AppError::NotFound);
+    }
+    Ok(Json(json!({ "contract_id": contract_id, "status": "deleted" })))
+}
+
+/// Public: read a contract's label/metadata (#1066).
+#[utoipa::path(
+    get,
+    path = "/v1/contracts/{contract_id}/metadata",
+    tag = "contracts",
+    params(
+        ("contract_id" = String, Path, description = "Stellar contract ID"),
+    ),
+    responses(
+        (status = 200, description = "Contract metadata", body = crate::contract_metadata::ContractMetadata),
+        (status = 400, description = "Invalid contract_id", body = ErrorResponse),
+        (status = 404, description = "No metadata registered", body = ErrorResponse),
+    )
+)]
+pub async fn get_contract_metadata(
+    State(state): State<AppState>,
+    Path(contract_id): Path<String>,
+) -> Result<Json<crate::contract_metadata::ContractMetadata>, AppError> {
+    validate_contract_id(&contract_id)?;
+    let metadata =
+        crate::contract_metadata::get_contract_metadata(&state.read_pool, &contract_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+    Ok(Json(metadata))
+}
+
+/// Admin: bulk import contract labels from a JSON array of
+/// `{contract_id, name, description, project_url, source_repo, tags, verified}` (#1066).
+pub async fn bulk_import_contract_metadata(
+    State(state): State<AppState>,
+    Json(entries): Json<Vec<Value>>,
+) -> Result<Json<Value>, AppError> {
+    let mut parsed = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let contract_id = entry
+            .get("contract_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AppError::Validation("missing contract_id".into()))?
+            .to_string();
+        validate_contract_id(&contract_id)?;
+        let input: crate::contract_metadata::UpsertContractMetadata =
+            serde_json::from_value(entry)
+                .map_err(|e| AppError::Validation(format!("invalid metadata entry: {e}")))?;
+        parsed.push((contract_id, input));
+    }
+    let count = crate::contract_metadata::bulk_import(&state.pool, parsed).await?;
+    Ok(Json(json!({ "imported": count })))
 }
 
 /// Anonymize a specific event for GDPR compliance.

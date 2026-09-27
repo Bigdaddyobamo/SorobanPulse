@@ -580,11 +580,48 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let mut secondary_indexer_handles = Vec::new();
     let indexer_handle = if config.role.runs_indexer() {
         // Spawn the indexer background task.
         let handle = tokio::spawn(async move {
             indexer.run().await;
         });
+
+        // Issue #1063: index additional networks (e.g. testnet alongside
+        // mainnet) concurrently from this same deployment. Each additional
+        // network gets its own indexer task, RPC client, advisory lock key
+        // (see `indexer::lock_key_for_chain`) and checkpoint row (the indexer
+        // checkpoint/state tables are already keyed off `chain_id`), but shares
+        // the connection pool, event broadcast channel and SSE ring buffer with
+        // the primary network so subscribers see all configured networks.
+        let secondary_targets: Vec<_> = config.network_targets().into_iter().skip(1).collect();
+        for target in secondary_targets {
+            info!(
+                chain_id = %target.chain_id,
+                rpc_url = %target.rpc_url,
+                "Starting additional network indexer"
+            );
+            let mut network_config = config.clone();
+            network_config.chain_id = target.chain_id.clone();
+            network_config.stellar_rpc_url = target.rpc_url.clone();
+
+            let network_rpc_client = indexer::SorobanRpcClient::new(&network_config);
+            let mut network_indexer = indexer::Indexer::new(
+                pool.clone(),
+                network_config,
+                shutdown_rx.clone(),
+                network_rpc_client,
+            );
+            network_indexer.set_health_state(health_state.clone());
+            network_indexer.set_indexer_state(indexer_state.clone());
+            network_indexer.set_event_tx(event_tx.clone());
+            network_indexer.set_sse_ring_buffer(std::sync::Arc::clone(&sse_ring_buf));
+
+            let handle = tokio::spawn(async move {
+                network_indexer.run().await;
+            });
+            secondary_indexer_handles.push(handle);
+        }
 
         // Spawn index usage monitoring background task (indexer role only)
         index_monitor::spawn(
@@ -803,6 +840,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Wait for the indexer task to finish (only present when role runs indexer).
     if let Some(handle) = indexer_handle {
+        let _ = handle.await;
+    }
+    for handle in secondary_indexer_handles {
         let _ = handle.await;
     }
 
