@@ -534,6 +534,13 @@ impl<R: RpcClient> Indexer<R> {
     }
 
     async fn run_loop(&self) {
+        crate::resources::spawn_sync(self.pool.clone(), self.config.stellar_rpc_url.clone());
+        crate::rpc_meta::spawn_monitor(
+            self.pool.clone(),
+            self.config.stellar_rpc_url.clone(),
+            self.indexer_state.clone(),
+            self.config.start_ledger,
+        );
         let mut current_ledger = self.config.start_ledger;
         let mut consecutive_db_errors = 0u32;
         let mut rpc_backoff_ms = 1000u64; // Start with 1 second backoff
@@ -1121,22 +1128,17 @@ impl<R: RpcClient> Indexer<R> {
         };
 
         // RETURNING (xmax = 0) distinguishes a true INSERT (xmax=0) from an UPDATE (xmax≠0).
-        let inserted: bool = sqlx::query_scalar(
-            r#"
-            INSERT INTO events (contract_id, event_type, tx_hash, ledger, timestamp, event_data, schema_version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (tx_hash, contract_id, event_type)
-            DO UPDATE SET event_data = events.event_data || EXCLUDED.event_data
-            RETURNING (xmax = 0)
-            "#,
+        // query_scalar! gives compile-time SQL verification via the .sqlx offline cache.
+        let inserted: bool = sqlx::query_scalar!(
+            "INSERT INTO events (contract_id, event_type, tx_hash, ledger, timestamp, event_data, schema_version)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nON CONFLICT (tx_hash, contract_id, event_type)\nDO UPDATE SET event_data = events.event_data || EXCLUDED.event_data\nRETURNING (xmax = 0)",
+            &event.contract_id as &str,
+            event.event_type.to_string() as String,
+            &event.tx_hash as &str,
+            ledger,
+            timestamp,
+            event_data,
+            schema_version,
         )
-        .bind(&event.contract_id)
-        .bind(&event.event_type)
-        .bind(&event.tx_hash)
-        .bind(ledger)
-        .bind(timestamp)
-        .bind(event_data)
-        .bind(schema_version)
         .fetch_one(&self.pool)
         .await?;
 

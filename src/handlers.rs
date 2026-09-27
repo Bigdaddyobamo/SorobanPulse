@@ -596,8 +596,75 @@ pub async fn health_live() -> (StatusCode, Json<Value>) {
     )
 )]
 pub async fn health_ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
-    let (status, body) = build_health_response(&state).await;
-    (status, Json(body))
+    use crate::config::Role;
+
+    match state.config.role {
+        // ── ROLE=indexer ─────────────────────────────────────────────────────
+        // Ready when the advisory lock is held (i.e. this pod is the active
+        // indexer leader).  A standby pod that lost the lock is intentionally
+        // not ready so that rolling updates don't stall on the standby, and
+        // Kubernetes won't route traffic to it while it waits for promotion.
+        Role::Indexer => {
+            let is_leader = state
+                .indexer_state
+                .is_active_indexer
+                .load(std::sync::atomic::Ordering::SeqCst);
+
+            if is_leader {
+                (
+                    StatusCode::OK,
+                    Json(json!({ "status": "ok", "role": "indexer", "lock": "held" })),
+                )
+            } else {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({
+                        "status": "degraded",
+                        "role": "indexer",
+                        "lock": "standby",
+                        "reason": "advisory lock not held; this replica is on standby"
+                    })),
+                )
+            }
+        }
+
+        // ── ROLE=api ──────────────────────────────────────────────────────────
+        // Ready when the database is reachable.  No indexer stall check —
+        // api pods never run the indexer, so an indexer stall on another pod
+        // should not make every api pod unready.
+        Role::Api => {
+            let timeout = Duration::from_millis(state.health_check_timeout_ms);
+            let db_check =
+                tokio::time::timeout(timeout, sqlx::query("SELECT 1").fetch_one(&state.pool))
+                    .await;
+
+            let (db_ok, db_status) = match db_check {
+                Ok(Ok(_)) => (true, "ok"),
+                Ok(Err(sqlx::Error::PoolTimedOut)) => (false, "pool_exhausted"),
+                Ok(Err(_)) => (false, "unreachable"),
+                Err(_) => (false, "timeout"),
+            };
+
+            if db_ok {
+                (
+                    StatusCode::OK,
+                    Json(json!({ "status": "ok", "role": "api", "db": "ok" })),
+                )
+            } else {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({ "status": "degraded", "role": "api", "db": db_status })),
+                )
+            }
+        }
+
+        // ── ROLE=all (default) ────────────────────────────────────────────────
+        // Backward-compatible: DB reachable AND indexer not stalled.
+        Role::All => {
+            let (status, body) = build_health_response(&state).await;
+            (status, Json(body))
+        }
+    }
 }
 
 /// Query parameters for the email unsubscribe endpoint (Issue #483).
@@ -775,7 +842,7 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
 
     let indexer_paused = state.indexer_state.is_paused.load(Ordering::Relaxed);
 
-    let total_events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+    let total_events: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM events")
         .fetch_one(&state.pool)
         .await
         .unwrap_or(0);
@@ -811,7 +878,14 @@ pub async fn status(State(state): State<AppState>) -> Json<Value> {
         "indexer_status": indexer_status,
         "indexer_mode": indexer_mode,
         "indexer_paused": indexer_paused,
+        "rpc_version": crate::rpc_meta::current_version(),
+        "gaps": crate::rpc_meta::list_gaps(&state.pool).await,
     }))
+}
+
+/// GET /v1/admin/indexer/gaps
+pub async fn get_indexer_gaps(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({ "gaps": crate::rpc_meta::list_gaps(&state.pool).await }))
 }
 
 /// Returns aggregate statistics about indexed events.
@@ -1107,17 +1181,91 @@ pub async fn openapi_json() -> impl IntoResponse {
     Json(ApiDoc::openapi())
 }
 
-/// Serve a minimal Swagger UI HTML page.
+/// Serve the branded SorobanPulse Swagger UI page.
+///
+/// The inline `<style>` block applies SorobanPulse brand colours and full dark
+/// mode on top of the stock Swagger UI stylesheet loaded from unpkg.com.
+/// The `<script>` block initialises SwaggerUIBundle.
+///
+/// Both blocks carry a SHA-256 hash that is allow-listed in the `/docs` CSP so
+/// `unsafe-inline` is **not** needed.  If you modify either block you must
+/// recompute the hash with:
+///
+/// ```sh
+/// printf '%s' 'THE CONTENT' | openssl dgst -sha256 -binary | base64
+/// ```
+///
+/// and update `csp_docs` in `src/middleware/security_headers.rs` accordingly.
 pub async fn swagger_ui() -> impl IntoResponse {
-    axum::response::Html(
-        "<!DOCTYPE html><html><head><title>Soroban Pulse API</title>\
-        <meta charset=\"utf-8\"/>\
-        <link rel=\"stylesheet\" href=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui.css\"></head>\
-        <body><div id=\"swagger-ui\"></div>\
-        <script src=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>\
-        <script>SwaggerUIBundle({url:\"/openapi.json\",dom_id:\"#swagger-ui\"})</script>\
-        </body></html>"
-    )
+    // Inline CSS — SHA-256: t5Nfs8a1PFuEVO00S72ZGB4P65C74f37u8w0VCVsqBw=
+    let style = r#":root{--sp-bg:#0f1117;--sp-surface:#1a1d2e;--sp-border:#2d3158;--sp-accent:#7c3aed;--sp-accent-light:#a78bfa;--sp-text:#e2e8f0;--sp-text-muted:#94a3b8;--sp-success:#10b981;--sp-warning:#f59e0b;--sp-danger:#ef4444}
+body{background:var(--sp-bg)!important;color:var(--sp-text)!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+#swagger-ui .swagger-ui .info{margin:2rem 0}
+#swagger-ui .swagger-ui .info .title{color:var(--sp-accent-light)!important;font-size:2rem!important;font-weight:700}
+#swagger-ui .swagger-ui .info .description p,#swagger-ui .swagger-ui .info .description li{color:var(--sp-text)!important}
+#swagger-ui .swagger-ui .info .description a{color:var(--sp-accent-light)!important}
+#swagger-ui .topbar{background:var(--sp-surface)!important;border-bottom:1px solid var(--sp-border)!important;padding:.75rem 1rem}
+#swagger-ui .swagger-ui .scheme-container{background:var(--sp-surface)!important;border-bottom:1px solid var(--sp-border)!important}
+#swagger-ui .swagger-ui .opblock-tag{color:var(--sp-text)!important;border-bottom:1px solid var(--sp-border)!important}
+#swagger-ui .swagger-ui .opblock{background:var(--sp-surface)!important;border:1px solid var(--sp-border)!important;border-radius:.5rem!important;margin-bottom:.75rem}
+#swagger-ui .swagger-ui .opblock .opblock-summary{border-bottom:1px solid var(--sp-border)!important}
+#swagger-ui .swagger-ui .opblock .opblock-summary-method{border-radius:.25rem!important;font-weight:600}
+#swagger-ui .swagger-ui .opblock.opblock-get .opblock-summary-method{background:var(--sp-success)!important}
+#swagger-ui .swagger-ui .opblock.opblock-post .opblock-summary-method{background:var(--sp-accent)!important}
+#swagger-ui .swagger-ui .opblock.opblock-delete .opblock-summary-method{background:var(--sp-danger)!important}
+#swagger-ui .swagger-ui .opblock.opblock-patch .opblock-summary-method{background:var(--sp-warning)!important}
+#swagger-ui .swagger-ui .opblock-description-wrapper p,.swagger-ui .markdown p{color:var(--sp-text)!important}
+#swagger-ui .swagger-ui section.models{background:var(--sp-surface)!important;border:1px solid var(--sp-border)!important;border-radius:.5rem}
+#swagger-ui .swagger-ui section.models h4{color:var(--sp-text)!important}
+#swagger-ui .swagger-ui .model-box{background:var(--sp-bg)!important}
+#swagger-ui .swagger-ui .parameter__name,#swagger-ui .swagger-ui .parameter__type{color:var(--sp-text-muted)!important}
+#swagger-ui .swagger-ui input[type=text],#swagger-ui .swagger-ui textarea{background:var(--sp-bg)!important;border:1px solid var(--sp-border)!important;color:var(--sp-text)!important}
+#swagger-ui .swagger-ui select{background:var(--sp-bg)!important;color:var(--sp-text)!important;border:1px solid var(--sp-border)!important}
+#swagger-ui .swagger-ui .btn.authorize{background:var(--sp-accent)!important;border-color:var(--sp-accent)!important;color:#fff!important}
+#swagger-ui .swagger-ui .btn.execute{background:var(--sp-success)!important;border-color:var(--sp-success)!important;color:#fff!important}
+#swagger-ui .swagger-ui .response-col_status{color:var(--sp-text)!important}
+#swagger-ui .swagger-ui .response-col_description{color:var(--sp-text-muted)!important}
+#swagger-ui .swagger-ui pre.microlight{background:var(--sp-bg)!important;color:var(--sp-accent-light)!important;border:1px solid var(--sp-border)!important;border-radius:.375rem}
+#swagger-ui .swagger-ui .highlight-code{background:var(--sp-bg)!important}"#;
+
+    // Inline JS — SHA-256: OlhJ06FtsPaiJ/1A+8VpeJOGKCgqkf63ajgd7nrxk98=
+    let script = r##"SwaggerUIBundle({url:"/openapi.json",dom_id:"#swagger-ui",deepLinking:true,presets:[SwaggerUIBundle.presets.apis,SwaggerUIBundle.SwaggerUIStandalonePreset],layout:"BaseLayout",docExpansion:"list",defaultModelsExpandDepth:1})"##;
+
+    // SorobanPulse logo — inline SVG, no external fetch required
+    let logo_svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+  <circle cx="18" cy="18" r="18" fill="#7c3aed"/>
+  <path d="M10 18 Q18 8 26 18 Q18 28 10 18Z" fill="#a78bfa"/>
+  <circle cx="18" cy="18" r="4" fill="#0f1117"/>
+</svg>"#;
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SorobanPulse — API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"/>
+  <style>{style}</style>
+</head>
+<body>
+  <header style="display:flex;align-items:center;gap:.75rem;padding:1rem 1.5rem;background:#1a1d2e;border-bottom:1px solid #2d3158;position:sticky;top:0;z-index:100">
+    {logo_svg}
+    <span style="font-size:1.25rem;font-weight:700;color:#a78bfa;letter-spacing:-.01em">SorobanPulse</span>
+    <span style="font-size:.875rem;color:#94a3b8;margin-left:.25rem">API Explorer</span>
+    <a href="/openapi.json" style="margin-left:auto;font-size:.8125rem;color:#a78bfa;text-decoration:none;border:1px solid #2d3158;padding:.25rem .625rem;border-radius:.375rem">OpenAPI JSON ↗</a>
+  </header>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>{script}</script>
+</body>
+</html>"#,
+        style = style,
+        logo_svg = logo_svg,
+        script = script,
+    );
+
+    axum::response::Html(html)
 }
 
 /// Stream new events in real time via Server-Sent Events.
@@ -2898,8 +3046,9 @@ pub async fn get_events(
                     .await?;
             (count, false)
         } else {
-            let count = sqlx::query_scalar::<_, i64>(
-                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'events'",
+            // query_scalar! gives compile-time SQL verification via the .sqlx offline cache.
+            let count = sqlx::query_scalar!(
+                "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname = 'events'",
             )
             .fetch_one(&state.read_pool)
             .await?;
@@ -3799,9 +3948,9 @@ pub async fn get_events_by_contract(
             cached
         } else {
             crate::metrics::update_contract_count_cache_hit_ratio(0, 1);
+            // query_scalar! gives compile-time SQL verification via the .sqlx offline cache.
             let count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE contract_id = $1")
-                    .bind(&contract_id)
+                sqlx::query_scalar!("SELECT COUNT(*) FROM events WHERE contract_id = $1", &contract_id as &str)
                     .fetch_one(&state.pool)
                     .await?;
             state
@@ -11619,9 +11768,13 @@ pub async fn create_notification_channel(
     if req.name.trim().is_empty() {
         return Err(AppError::Validation("name is required".to_string()));
     }
-    if !matches!(req.channel_type.as_str(), "webhook" | "email" | "sms") {
+    if !matches!(
+        req.channel_type.as_str(),
+        "webhook" | "email" | "sms" | "slack" | "discord" | "telegram" | "pagerduty" | "github"
+    ) {
         return Err(AppError::Validation(
-            "channel_type must be one of: webhook, email, sms".to_string(),
+            "channel_type must be one of: webhook, email, sms, slack, discord, telegram, pagerduty, github"
+                .to_string(),
         ));
     }
 
@@ -12641,7 +12794,8 @@ pub async fn verify_ledger_hash_chain(
 pub async fn compression_stats(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, AppError> {
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+    // query_scalar! gives compile-time SQL verification via the .sqlx offline cache.
+    let total: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM events")
         .fetch_one(&state.pool)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -15386,3 +15540,255 @@ pub async fn cleanup_export_files(
         "removed_jobs": removed,
     })))
 }
+
+/// Get cross-chain trace for a transaction
+/// Issue #682: Implement cross-chain event correlation
+#[utoipa::path(
+    get,
+    path = "/v1/cross-chain/trace/{tx_hash}",
+    tag = "cross-chain",
+    params(
+        ("tx_hash" = String, Path, description = "Transaction hash to trace")
+    ),
+    responses(
+        (status = 200, description = "Cross-chain trace", body = serde_json::Value),
+        (status = 404, description = "No trace found"),
+        (status = 500, description = "Internal server error")
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_cross_chain_trace(
+    State(state): State<AppState>,
+    Path(tx_hash): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    // Query all events related to this transaction
+    let events = sqlx::query_as::<_, (String, String, String, String, String, i32, String)>(
+        "SELECT id, contract_id, event_type, tx_hash, topic, ledger, ledger_close_time FROM events WHERE tx_hash = $1 ORDER BY ledger"
+    )
+    .bind(&tx_hash)
+    .fetch_all(&state.read_pool)
+    .await
+    .map_err(|_| AppError::NotFound)?;
+
+    if events.is_empty() {
+        return Err(AppError::NotFound);
+    }
+
+    // Build cross-chain trace
+    let root_tx = crate::cross_chain_correlation::TransactionId::new("soroban-mainnet", tx_hash.clone());
+    let mut builder = crate::cross_chain_correlation::CrossChainTraceBuilder::new(root_tx);
+
+    for (event_id, contract_id, event_type, _, _, ledger, ledger_close_time) in events {
+        let trace_event = crate::cross_chain_correlation::TraceEvent {
+            event_id,
+            chain: "soroban-mainnet".to_string(),
+            contract_id,
+            event_type,
+            tx_hash: tx_hash.clone(),
+            ledger: ledger as u64,
+            ledger_close_time: ledger_close_time.parse().unwrap_or_else(|_| chrono::Utc::now()),
+            depth: 0,
+            confidence: 1.0,
+        };
+        builder = builder.add_event(trace_event);
+    }
+
+    let trace = builder.build().ok_or(AppError::NotFound)?;
+
+    Ok(Json(json!({
+        "id": trace.id,
+        "root_transaction": {
+            "chain": trace.root_transaction.chain,
+            "tx_hash": trace.root_transaction.tx_hash
+        },
+        "events_count": trace.events.len(),
+        "correlations_count": trace.correlations.len(),
+        "chain_sequence": trace.chain_sequence,
+        "overall_confidence": trace.overall_confidence,
+        "created_at": trace.created_at,
+        "events": trace.events.iter().map(|e| json!({
+            "event_id": e.event_id,
+            "chain": e.chain,
+            "contract_id": e.contract_id,
+            "event_type": e.event_type,
+            "ledger": e.ledger,
+            "confidence": e.confidence
+        })).collect::<Vec<_>>()
+    })))
+}
+
+/// Get causality analysis between two events
+/// Issue #682: Implement cross-chain event correlation
+#[utoipa::path(
+    get,
+    path = "/v1/cross-chain/causality",
+    tag = "cross-chain",
+    params(
+        ("event1" = String, Query, description = "First event ID"),
+        ("event2" = String, Query, description = "Second event ID")
+    ),
+    responses(
+        (status = 200, description = "Causality analysis", body = serde_json::Value),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error")
+    ),
+    security(("api_key" = []))
+)]
+pub async fn analyze_causality(
+    State(state): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    let event1_id = params.get("event1")
+        .ok_or(AppError::BadRequest("event1 parameter required".to_string()))?;
+    let event2_id = params.get("event2")
+        .ok_or(AppError::BadRequest("event2 parameter required".to_string()))?;
+
+    // Fetch both events
+    let event1 = sqlx::query_as::<_, (String, String, String, String, i32, String)>(
+        "SELECT id, contract_id, event_type, tx_hash, ledger, ledger_close_time FROM events WHERE id = $1"
+    )
+    .bind(event1_id)
+    .fetch_optional(&state.read_pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let event2 = sqlx::query_as::<_, (String, String, String, String, i32, String)>(
+        "SELECT id, contract_id, event_type, tx_hash, ledger, ledger_close_time FROM events WHERE id = $1"
+    )
+    .bind(event2_id)
+    .fetch_optional(&state.read_pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let engine = crate::cross_chain_correlation::CorrelationEngine::new();
+
+    let trace1 = crate::cross_chain_correlation::TraceEvent {
+        event_id: event1.0,
+        chain: "soroban-mainnet".to_string(),
+        contract_id: event1.1,
+        event_type: event1.2,
+        tx_hash: event1.3,
+        ledger: event1.4 as u64,
+        ledger_close_time: event1.5.parse().unwrap_or_else(|_| chrono::Utc::now()),
+        depth: 0,
+        confidence: 1.0,
+    };
+
+    let trace2 = crate::cross_chain_correlation::TraceEvent {
+        event_id: event2.0,
+        chain: "soroban-mainnet".to_string(),
+        contract_id: event2.1,
+        event_type: event2.2,
+        tx_hash: event2.3,
+        ledger: event2.4 as u64,
+        ledger_close_time: event2.5.parse().unwrap_or_else(|_| chrono::Utc::now()),
+        depth: 1,
+        confidence: 1.0,
+    };
+
+    let similarity = engine.calculate_similarity(&trace1, &trace2);
+    let causality = engine.detect_causality(&trace1, &trace2);
+
+    Ok(Json(json!({
+        "event1_id": event1_id,
+        "event2_id": event2_id,
+        "similarity_score": similarity,
+        "causality": causality.map(|c| format!("{:?}", c)),
+        "related": causality.is_some()
+    })))
+}
+++ b/src/main.rs
+mod cross_chain_correlation;
+#[utoipa::path(
+    get,
+    path = "/v1/features",
+    tag = "system",
+    params(
+        ("flag_name" = String, Query, description = "Feature flag name (required)"),
+        ("contract_id" = String, Query, description = "Contract ID for targeting (optional)"),
+        ("user_id" = String, Query, description = "User ID for targeting (optional)"),
+        ("ip_address" = String, Query, description = "IP address for targeting (optional)"),
+        ("region" = String, Query, description = "Region for targeting (optional)"),
+    ),
+    responses(
+        (status = 200, description = "Feature flag status"),
+        (status = 400, description = "Missing required parameters"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
+pub async fn get_feature_flag_status(
+    State(state): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, AppError> {
+    let flag_name = params
+        .get("flag_name")
+        .ok_or_else(|| AppError::BadRequest("Missing required parameter: flag_name".to_string()))?
+        .clone();
+
+    let context = crate::feature_flags::FeatureFlagContext {
+        contract_id: params.get("contract_id").cloned(),
+        user_id: params.get("user_id").cloned(),
+        ip_address: params.get("ip_address").cloned(),
+        region: params.get("region").cloned(),
+    };
+
+    let enabled = crate::feature_flags::is_feature_enabled(&state.pool, &flag_name, &context)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(json!({
+        "flag_name": flag_name,
+        "enabled": enabled,
+        "context": {
+            "contract_id": context.contract_id,
+            "user_id": context.user_id,
+            "ip_address": context.ip_address,
+            "region": context.region,
+        }
+    })))
+}
+++ b/src/metrics.rs
+// ── Issue #630: Resource utilization metrics ────────────────────────────────
+
+/// Update file descriptor count gauge
+pub fn update_fd_count(count: u64) {
+    m::gauge!("soroban_pulse_fd_count").set(count as f64);
+}
+
+/// Update disk I/O read bytes gauge
+pub fn update_disk_read_bytes(bytes: u64) {
+/// Webhook that receives email bounce notifications from SendGrid, AWS SES
+/// (including SNS-wrapped notifications) and Mailgun (Issue #484). Bounced
+/// addresses are persisted so future notifications skip them.
+#[utoipa::path(
+    post,
+    path = "/v1/notifications/email/bounce",
+    tag = "system",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Bounce payload processed", body = serde_json::Value),
+    )
+)]
+pub async fn email_bounce_webhook(
+    State(state): State<AppState>,
+    Json(payload): Json<Value>,
+) -> impl IntoResponse {
+    let recipients = crate::email::extract_bounced_recipients(&payload);
+    let mut recorded = 0usize;
+    for recipient in &recipients {
+        match crate::email::record_bounce(&state.pool, recipient).await {
+            Ok(()) => {
+                crate::metrics::record_email_bounce();
+                recorded += 1;
+            }
+            Err(e) => {
+                tracing::error!(error = %e, email = %recipient.email, "Failed to record email bounce");
+            }
+        }
+    }
+    (
+        StatusCode::OK,
+        Json(json!({ "received": recipients.len(), "recorded": recorded })),
+    )
+}
+
