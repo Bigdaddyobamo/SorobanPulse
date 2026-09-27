@@ -153,7 +153,40 @@ pub struct AppState {
     info(
         title = "Soroban Pulse API",
         version = "1.0.0",
-        description = "Indexes Soroban smart contract events on the Stellar network."
+        description = "## Soroban Pulse API
+
+Real-time indexing and querying of Soroban smart contract events on the Stellar network.
+
+---
+
+### Authentication
+
+Most endpoints are open. When the `API_KEY` environment variable is set, all routes except
+`/health` and `/healthz/*` require one of:
+
+- `Authorization: Bearer <API_KEY>` header
+- `X-Api-Key: <API_KEY>` header
+
+Administrative endpoints under `/v1/admin/*` require `ADMIN_API_KEY` (independent of `API_KEY`).
+A missing key returns **401 Unauthorized**; a wrong key returns **403 Forbidden**.
+
+---
+
+### Rate Limiting
+
+Default: **60 requests / minute per IP** (configurable via `RATE_LIMIT_PER_MINUTE`).
+Requests that exceed the limit receive **429 Too Many Requests** with a `Retry-After` header.
+Set `RATE_LIMIT_PER_MINUTE=0` to disable rate limiting entirely.
+
+---
+
+### Guides & Resources
+
+- [Developer Onboarding](https://github.com/Soroban-Pulse/SorobanPulse/blob/main/docs/onboarding.md)
+- [API Usage Guide](https://github.com/Soroban-Pulse/SorobanPulse/blob/main/docs/api-guide.md)
+- [SDK Integration Guide](https://github.com/Soroban-Pulse/SorobanPulse/blob/main/docs/sdk-integration-guide.md)
+- [Webhook Verification](https://github.com/Soroban-Pulse/SorobanPulse/blob/main/docs/webhook-verification.md)
+- [Contract Event Schemas](https://github.com/Soroban-Pulse/SorobanPulse/blob/main/docs/contract-event-schemas.md)"
     ),
     paths(
         handlers::health,
