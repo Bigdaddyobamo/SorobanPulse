@@ -29,6 +29,15 @@ Request Tester reads from secure storage first and falls back to the
 has been saved that way — existing configs keep working, but new users
 should prefer the commands. See `src/apiKeyManager.ts`.
 
+### Migration from plaintext settings
+
+On activation the extension checks the user and workspace scopes for
+`sorobanpulse.apiKey` / `sorobanpulse.adminApiKey`. Each value found is
+copied into `SecretStorage` (unless a key was already saved there, which
+wins) and the setting is removed from every scope that defined it, with a
+one-time notification. After that first activation `settings.json` holds no
+key material. See `src/keyMigration.ts`.
+
 ## Testing a webhook
 
 **Soroban Pulse: Test Webhook** (also available as the radio-tower icon in
