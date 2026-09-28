@@ -11,17 +11,27 @@
   "categories": ["Other"],
   "keywords": ["soroban", "stellar", "blockchain", "api", "rest"],
   "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0F1222",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Soroban-Pulse/SorobanPulse.git",
-    "directory": "vscode-extension"
+    "url": "https://github.com/Soroban-Pulse/SorobanPulse"
   },
   "bugs": {
     "url": "https://github.com/Soroban-Pulse/SorobanPulse/issues"
   },
   "homepage": "https://github.com/Soroban-Pulse/SorobanPulse/tree/main/vscode-extension#readme",
   "activationEvents": [
-    "onView:sorobanpulse.apiExplorer"
+    "onView:sorobanpulse.apiExplorer",
+    "onLanguage:rust",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact",
+    "onLanguage:json",
+    "onLanguage:jsonc"
   ],
   "main": "./out/extension.js",
   "contributes": {

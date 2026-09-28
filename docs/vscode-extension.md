@@ -67,14 +67,13 @@ configured `sorobanpulse.baseUrl` and does not require an API key.
 | `sorobanpulse.adminApiKey` | `""` | Legacy fallback — prefer **Set Admin API Key**. |
 | `sorobanpulse.timeoutMs` | `10000` | Request timeout for both the Request Tester and Test Webhook. |
 
-## Tailing contract events
+## Contract ID hover
 
-**Soroban Pulse: Tail Contract Events** asks for a contract ID (pre-filled
-when the editor selection contains a `C…` contract strkey) and opens
-`/v1/events/stream?contract_id=<id>` against `sorobanpulse.baseUrl`, sending
-the stored API key as `x-api-key`. Each event is written to the
-**Soroban Pulse Events** output channel as a summary line (event type,
-ledger, tx hash) followed by the pretty-printed JSON payload. Only one tail
-runs at a time; **Soroban Pulse: Stop Tailing Events** closes it. The SSE
-parser and formatting live in `src/eventStream.ts` (unit tested, `npm test`);
-the command wiring is in `src/eventTail.ts`.
+Hovering a 56-character contract ID (`C` followed by 55 base32 characters)
+in Rust, TypeScript, JavaScript or JSON files shows its summary from
+`GET /v1/contracts/{contract_id}/summary`: total events, last seen ledger
+(`ledger_range.max`) and last event time. Responses are cached for 30
+seconds (the cache is dropped when any `sorobanpulse.*` setting changes).
+Unknown contracts, non-200 responses, timeouts (3 s) and an unreachable
+server show no hover. The cache and rendering live in `src/contractHover.ts`
+(unit tested, `npm test`); the provider is in `src/contractHoverProvider.ts`.
